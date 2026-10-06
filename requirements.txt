@@ -1,0 +1,5 @@
+python-dotenv
+pydantic-settings
+sentence-transformers
+qdrant-client
+pytest
