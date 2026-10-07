@@ -3,3 +3,4 @@ pydantic-settings
 sentence-transformers
 qdrant-client
 pytest
+numpy
