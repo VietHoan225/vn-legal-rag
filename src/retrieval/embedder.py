@@ -27,12 +27,9 @@ class Embedder:
         self.max_seq_length: int = getattr(self.model, "max_seq_length", 128)
 
         # Handle sentence-transformers API differences
-        if hasattr(self.model, "get_sentence_embedding_dimension"):
-            dim = self.model.get_sentence_embedding_dimension()
-            self.embedding_dim: int = dim if dim is not None else 384
-        elif hasattr(self.model, "get_embedding_dimension"):
+        if hasattr(self.model, "get_embedding_dimension"):
             dim = self.model.get_embedding_dimension()
-            self.embedding_dim = dim if dim is not None else 384
+            self.embedding_dim: int = dim if dim is not None else 384
         else:
             self.embedding_dim = 384
 

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     )
 
     # Core service settings
-    gemini_api_key: str = ""
+    groq_api_key: str = ""
     qdrant_url: str = "http://localhost:6333"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     qdrant_collection_name: str = "legal_chunks"
