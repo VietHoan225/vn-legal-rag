@@ -13,33 +13,29 @@ st.set_page_config(
 # Custom CSS for better aesthetics
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #f8fafc;
-    }
     .main .block-container {
         padding-top: 2rem;
         max-width: 800px;
     }
     .title-text {
         text-align: center;
-        color: #1e293b;
         font-family: 'Inter', sans-serif;
         font-weight: 800;
         margin-bottom: 0.5rem;
     }
     .subtitle-text {
         text-align: center;
-        color: #64748b;
+        opacity: 0.8;
         font-size: 1.1rem;
         margin-bottom: 2rem;
     }
     .source-box {
-        background-color: #f1f5f9;
         border-left: 4px solid #3b82f6;
         padding: 10px 15px;
         margin: 10px 0;
         border-radius: 4px;
         font-size: 0.9em;
+        background-color: rgba(59, 130, 246, 0.1);
     }
 </style>
 """, unsafe_allow_html=True)
