@@ -84,9 +84,11 @@ if prompt := st.chat_input("Nhập câu hỏi pháp lý của bạn vào đây..
         message_placeholder.markdown("⏳ *Đang tra cứu tài liệu và suy nghĩ...*")
         
         try:
+            import os
+            api_url = os.environ.get("API_URL", "http://localhost:8000")
             # Call API
             response = requests.post(
-                "http://localhost:8000/ask",
+                f"{api_url}/ask",
                 json={"question": prompt, "limit": 4},
                 timeout=30
             )

@@ -1,8 +1,53 @@
+version: '3.8'
+
 services:
   qdrant:
     image: qdrant/qdrant:v1.19.2
+    container_name: vn_legal_qdrant
     ports:
       - "6333:6333"
       - "6334:6334"
     volumes:
       - ./qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vn_legal_api
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      # We read GROQ_API_KEY from the host machine's .env file
+    env_file:
+      - .env
+    volumes:
+      # Mount the models cache so it doesn't redownload every time
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      # Mount data folder for BM25 index
+      - ./data:/app/data
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ui:
+    build: 
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: vn_legal_ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
