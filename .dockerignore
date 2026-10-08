@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Môi trường ảo (nếu có)
+.venv/
+venv/
+ENV/
+env/
+
+# Biến môi trường và cấu hình cá nhân
+.env
+.env.*
+! .env.example
+
+# Dữ liệu dự án không cần thiết build vào image
+qdrant_storage/
+data/
+notebooks/
+eval/
+
+# Khác
+.DS_Store
