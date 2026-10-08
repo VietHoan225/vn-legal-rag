@@ -4,6 +4,8 @@ from typing import List
 from src.config import settings
 from src.retrieval.embedder import Embedder
 from src.retrieval.vector_store import QdrantVectorStore
+from src.retrieval.reranker import Reranker
+from src.retrieval.hybrid_search import HybridRetriever
 from src.generation.generator import GroqGenerator
 from src.api.models import AskRequest, AskResponse, SourceDocument
 
@@ -16,6 +18,8 @@ app = FastAPI(
 # Global variables for lazy loading
 embedder = None
 vector_store = None
+reranker = None
+hybrid_retriever = None
 generator = None
 
 def get_embedder():
@@ -29,6 +33,18 @@ def get_vector_store():
     if vector_store is None:
         vector_store = QdrantVectorStore()
     return vector_store
+
+def get_hybrid_retriever():
+    global hybrid_retriever
+    if hybrid_retriever is None:
+        hybrid_retriever = HybridRetriever(get_vector_store(), get_embedder())
+    return hybrid_retriever
+
+def get_reranker():
+    global reranker
+    if reranker is None:
+        reranker = Reranker()
+    return reranker
 
 def get_generator():
     global generator
@@ -53,11 +69,11 @@ def ask_question(request: AskRequest):
         # 1. Embed the query
         query_vec = get_embedder().embed_query(request.question)
         
-        # 2. Retrieve relevant documents
-        search_results = get_vector_store().search(
-            collection_name=settings.qdrant_collection_name,
-            query_vector=query_vec,
-            limit=request.limit
+        # 2. Retrieve relevant documents (fetch more for reranking, use hybrid)
+        initial_limit = request.limit * 3
+        search_results = get_hybrid_retriever().search(
+            query=request.question,
+            limit=initial_limit
         )
 
         if not search_results:
@@ -66,7 +82,14 @@ def ask_question(request: AskRequest):
                 sources=[]
             )
 
-        # 3. Generate answer
+        # 3. Rerank results
+        search_results = get_reranker().rerank(
+            query=request.question,
+            results=search_results,
+            top_k=request.limit
+        )
+
+        # 4. Generate answer
         generation_result = get_generator().generate_answer(request.question, search_results)
         
         # 4. Format response

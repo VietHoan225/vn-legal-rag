@@ -17,6 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config import settings
 from src.retrieval.embedder import Embedder
 from src.retrieval.vector_store import QdrantVectorStore
+from src.retrieval.reranker import Reranker
+from src.retrieval.hybrid_search import HybridRetriever
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ def compute_metrics(
     embedder: Embedder,
     collection_name: str,
     k_list: list[int],
+    reranker: Reranker | None = None,
+    hybrid_retriever: HybridRetriever | None = None,
 ) -> dict[str, Any]:
     """Evaluate retrieval performance across test queries."""
     max_k = max(k_list)
@@ -46,11 +50,24 @@ def compute_metrics(
 
         # Query embedding and search
         query_vec = embedder.embed_query(question)
-        results = vector_store.search(
-            collection_name=collection_name,
-            query_vector=query_vec,
-            limit=max_k,
-        )
+        
+        # If reranking, retrieve more documents initially
+        initial_limit = max_k * 3 if reranker else max_k
+        
+        if hybrid_retriever:
+            results = hybrid_retriever.search(
+                query=question,
+                limit=initial_limit
+            )
+        else:
+            results = vector_store.search(
+                collection_name=collection_name,
+                query_vector=query_vec,
+                limit=initial_limit,
+            )
+
+        if reranker:
+            results = reranker.rerank(question, results, top_k=max_k)
 
         retrieved_docs = [r.doc_id for r in results]
         retrieved_articles = [r.article_id for r in results]
@@ -112,6 +129,8 @@ def format_results_markdown(
 
 ### 1. Cấu hình thử nghiệm
 - **Embedding Model:** `{config_info['embedding_model']}`
+- **Reranker Model:** `{config_info.get('reranker_model', 'None')}`
+- **Hybrid Search (BM25):** `{'Enabled' if config_info.get('use_hybrid') else 'Disabled'}`
 - **Device:** `{config_info['device']}`
 - **Vector Store:** Qdrant (`{config_info['qdrant_url']}`), Collection: `{config_info['collection_name']}`
 - **Chunking:** `chunk_size={config_info['chunk_size']}`, `chunk_overlap={config_info['chunk_overlap']}` (prefix: `<tên văn bản> - Điều N`)
@@ -138,6 +157,8 @@ def run_evaluation(
     output_results_path: Path,
     collection_name: str,
     k_list: list[int],
+    use_reranker: bool = False,
+    use_hybrid: bool = False,
 ) -> dict[str, Any]:
     """Load test dataset, run retrieval evaluation, and append results to markdown."""
     logger.info("Loading test questions from: %s", questions_path)
@@ -149,6 +170,8 @@ def run_evaluation(
 
     embedder = Embedder()
     vector_store = QdrantVectorStore()
+    reranker = Reranker() if use_reranker else None
+    hybrid_retriever = HybridRetriever(vector_store, embedder) if use_hybrid else None
 
     start_time = time.time()
     metrics = compute_metrics(
@@ -157,12 +180,16 @@ def run_evaluation(
         embedder=embedder,
         collection_name=collection_name,
         k_list=k_list,
+        reranker=reranker,
+        hybrid_retriever=hybrid_retriever,
     )
     elapsed = time.time() - start_time
     logger.info("Evaluation completed in %.2f seconds.", elapsed)
 
     config_info = {
         "embedding_model": settings.embedding_model,
+        "reranker_model": settings.reranker_model if use_reranker else "None",
+        "use_hybrid": use_hybrid,
         "device": settings.resolved_device,
         "qdrant_url": settings.qdrant_url,
         "collection_name": collection_name,
@@ -220,12 +247,26 @@ def main() -> None:
         help="List of k values for Hit@k.",
     )
 
+    parser.add_argument(
+        "--use-reranker",
+        action="store_true",
+        help="Enable Cross-Encoder reranking.",
+    )
+
+    parser.add_argument(
+        "--use-hybrid",
+        action="store_true",
+        help="Enable Hybrid Search (Dense + Sparse BM25).",
+    )
+
     args = parser.parse_args()
     run_evaluation(
         questions_path=args.questions_file,
         output_results_path=args.output_md,
         collection_name=args.collection_name,
         k_list=args.top_k,
+        use_reranker=args.use_reranker,
+        use_hybrid=args.use_hybrid,
     )
 
 
