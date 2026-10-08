@@ -61,9 +61,10 @@ for message in st.session_state.messages:
         if message.get("sources"):
             with st.expander("📚 Xem nguồn trích dẫn"):
                 for src in message["sources"]:
+                    meta = src.get("metadata", {})
                     st.markdown(
                         f"""<div class="source-box">
-                        <strong>Văn bản:</strong> {src.get("title")} (Điều {src.get("article_number")})<br>
+                        <strong>Văn bản:</strong> {meta.get("title", "Không rõ")} (Điều {meta.get("article_number", "?")})<br>
                         <strong>Nội dung:</strong> {src.get("content")}<br>
                         <em>Độ tin cậy (Score): {src.get("score"):.2f}</em>
                         </div>""", 
@@ -105,9 +106,10 @@ if prompt := st.chat_input("Nhập câu hỏi pháp lý của bạn vào đây..
             if sources:
                 with st.expander("📚 Xem nguồn trích dẫn"):
                     for src in sources:
+                        meta = src.get("metadata", {})
                         st.markdown(
                             f"""<div class="source-box">
-                            <strong>Văn bản:</strong> {src.get("title")} (Điều {src.get("article_number")})<br>
+                            <strong>Văn bản:</strong> {meta.get("title", "Không rõ")} (Điều {meta.get("article_number", "?")})<br>
                             <strong>Nội dung:</strong> {src.get("content")}<br>
                             <em>Độ tin cậy (Score): {src.get("score"):.2f}</em>
                             </div>""", 
