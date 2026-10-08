@@ -1,0 +1,95 @@
+from fastapi import FastAPI, HTTPException
+from typing import List
+
+from src.config import settings
+from src.retrieval.embedder import Embedder
+from src.retrieval.vector_store import QdrantVectorStore
+from src.generation.generator import GroqGenerator
+from src.api.models import AskRequest, AskResponse, SourceDocument
+
+app = FastAPI(
+    title="VN Legal RAG API",
+    description="API for Vietnamese Legal Question Answering using RAG",
+    version="0.1.0"
+)
+
+# Global variables for lazy loading
+embedder = None
+vector_store = None
+generator = None
+
+def get_embedder():
+    global embedder
+    if embedder is None:
+        embedder = Embedder()
+    return embedder
+
+def get_vector_store():
+    global vector_store
+    if vector_store is None:
+        vector_store = QdrantVectorStore()
+    return vector_store
+
+def get_generator():
+    global generator
+    if generator is None:
+        generator = GroqGenerator()
+    return generator
+
+@app.get("/health")
+def health_check():
+    """Check if the API is running."""
+    return {"status": "ok", "message": "API is running"}
+
+@app.post("/ask", response_model=AskResponse)
+def ask_question(request: AskRequest):
+    """
+    Ask a legal question and get an answer generated from retrieved documents.
+    """
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    try:
+        # 1. Embed the query
+        query_vec = get_embedder().embed_query(request.question)
+        
+        # 2. Retrieve relevant documents
+        search_results = get_vector_store().search(
+            collection_name=settings.qdrant_collection_name,
+            query_vector=query_vec,
+            limit=request.limit
+        )
+
+        if not search_results:
+            return AskResponse(
+                answer="Xin lỗi, tôi không tìm thấy tài liệu pháp lý nào liên quan đến câu hỏi của bạn.",
+                sources=[]
+            )
+
+        # 3. Generate answer
+        generation_result = get_generator().generate_answer(request.question, search_results)
+        
+        # 4. Format response
+        sources = [
+            SourceDocument(
+                id=res.chunk_id,
+                content=res.text,
+                score=res.score,
+                metadata={
+                    "doc_id": res.doc_id,
+                    "article_id": res.article_id,
+                    "article_number": res.article_number,
+                    "title": res.title,
+                    "category": res.category
+                }
+            )
+            for res in search_results
+        ]
+
+        return AskResponse(
+            answer=generation_result.answer,
+            sources=sources
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

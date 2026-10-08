@@ -5,3 +5,6 @@ qdrant-client
 pytest
 numpy
 groq
+fastapi
+uvicorn
+httpx
