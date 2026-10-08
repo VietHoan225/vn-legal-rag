@@ -7,4 +7,7 @@ numpy
 groq
 fastapi
 uvicorn
-httpxbm25s
+httpx
+bm25s
+streamlit
+requests
