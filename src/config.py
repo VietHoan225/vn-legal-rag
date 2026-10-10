@@ -16,9 +16,11 @@ class Settings(BaseSettings):
 
     # Core service settings
     groq_api_key: str = ""
+    openrouter_api_key: str = ""
     qdrant_url: str = "http://localhost:6333"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
     qdrant_collection_name: str = "legal_chunks"
 
     # Ingest / Chunking settings

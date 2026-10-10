@@ -41,7 +41,7 @@ class Reranker:
         pairs = [[query, res.text] for res in results]
         
         # Predict scores
-        scores = self.model.predict(pairs)
+        scores = self.model.predict(pairs)  # type: ignore
         
         # Update scores in results
         for res, score in zip(results, scores):

@@ -11,3 +11,4 @@ httpx
 bm25s
 streamlit
 requests
+openai
