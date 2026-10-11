@@ -38,3 +38,16 @@ class ConversationMemory(BaseModel):
     def clear(self) -> None:
         """Clear the conversation memory."""
         self.messages = []
+
+    def trim(self, max_turns: int) -> None:
+        """Keep system messages plus the last `max_turns` user turns.
+
+        A turn starts at a user message and includes the assistant/tool messages
+        after it, so tool results always stay next to the tool call that made them.
+        """
+        user_idx = [i for i, m in enumerate(self.messages) if m.role == "user"]
+        if len(user_idx) <= max_turns:
+            return
+        cut = user_idx[-max_turns]
+        system = [m for m in self.messages[:cut] if m.role == "system"]
+        self.messages = system + self.messages[cut:]

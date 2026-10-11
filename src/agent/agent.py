@@ -8,13 +8,19 @@ from openai import OpenAI
 from src.config import settings
 from src.agent.memory import ConversationMemory, Message
 from src.agent.tools import LegalSearchTool
+from src.retrieval.vector_store import SearchResult
 
 logger = logging.getLogger(__name__)
 
 class LegalAgent:
     """An AI Agent that can chat and use tools to answer legal questions."""
     
-    def __init__(self, search_tool: LegalSearchTool, model_name: Optional[str] = None):
+    def __init__(
+        self,
+        search_tool: LegalSearchTool,
+        model_name: Optional[str] = None,
+        max_turns: int = 10,
+    ):
         model_name = model_name or settings.llm_model
         if not settings.openrouter_api_key:
             logger.warning("openrouter_api_key is empty. Agent will fail if called.")
@@ -27,6 +33,9 @@ class LegalAgent:
         self.model_name = model_name
         self.memory = ConversationMemory()
         self.search_tool = search_tool
+        self.max_turns = max_turns
+        # Legal chunks retrieved while answering the latest message
+        self.last_sources: list[SearchResult] = []
         
         self._init_system_prompt()
         
@@ -38,11 +47,27 @@ HƯỚNG DẪN QUAN TRỌNG:
 2. TRÍCH DẪN RÕ RÀNG: Bắt buộc trích dẫn cụ thể (ví dụ: Điểm a, Khoản 1, Điều X của văn bản Y) đối với mỗi luận điểm đưa ra dựa trên kết quả tra cứu.
 3. HỎI LẠI KHI CẦN THIẾT: Nếu câu hỏi quá mơ hồ hoặc thiếu ngữ cảnh, hãy hỏi lại người dùng để làm rõ thay vì tìm kiếm mù quáng.
 4. TỪ CHỐI NẾU KHÔNG CÓ DỮ LIỆU: Nếu đã dùng công cụ tìm kiếm mà không có tài liệu liên quan, hãy trả lời: "Xin lỗi, tôi chưa tìm thấy quy định cụ thể nào về vấn đề này trong cơ sở dữ liệu."
+5. CÂU KHÔNG LIÊN QUAN PHÁP LUẬT: Với lời chào, câu cảm ơn hoặc câu hỏi ngoài lĩnh vực pháp luật (ví dụ toán, thời tiết), KHÔNG gọi công cụ. Trả lời ngắn gọn, thân thiện (nếu câu hỏi đơn giản thì có thể trả lời luôn), rồi nhắc rằng bạn chuyên hỗ trợ các câu hỏi về pháp luật Việt Nam.
 """
         self.memory.add_message(Message(role="system", content=system_prompt))
         
     def chat(self, user_input: str) -> str:
-        """Process a user message and return the agent's response."""
+        """Process a user message and return the agent's response.
+
+        Sources retrieved for this message are available in `last_sources`.
+        If the LLM call fails, memory is restored so the failed turn leaves no trace.
+        """
+        self.memory.trim(self.max_turns)
+        self.last_sources = []
+        snapshot = list(self.memory.messages)
+        try:
+            return self._run(user_input)
+        except Exception:
+            self.memory.messages = snapshot
+            raise
+
+    def _run(self, user_input: str) -> str:
+        """Tool-calling loop: let the LLM search up to `max_steps` times, then answer."""
         self.memory.add_message(Message(role="user", content=user_input))
         
         max_steps = 3
@@ -112,7 +137,9 @@ HƯỚNG DẪN QUAN TRỌNG:
                         query = kwargs.get("query", "")
                         logger.info("Executing tool: %s with query: '%s'", function_name, query)
                         
-                        tool_result = self.search_tool.execute(query)
+                        results = self.search_tool.search(query)
+                        self.last_sources.extend(results)
+                        tool_result = self.search_tool.format_results(results)
                     except Exception as e:
                         logger.error("Error executing tool %s: %s", function_name, e)
                         tool_result = f"Error: {e}"

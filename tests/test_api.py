@@ -33,7 +33,8 @@ def test_ask_question_success(mock_get_generator, mock_get_reranker, mock_get_hy
             article_id="art_1",
             article_number=1,
             title="Điều 1",
-            category="general"
+            category="general",
+            clause_number=2,
         )
     ]
     mock_get_hybrid.return_value = mock_search
@@ -59,6 +60,8 @@ def test_ask_question_success(mock_get_generator, mock_get_reranker, mock_get_hy
     assert len(data["sources"]) == 1
     assert data["sources"][0]["id"] == "1"
     assert data["sources"][0]["content"] == "Điều 1: Luật này..."
+    assert data["sources"][0]["metadata"]["clause_number"] == 2
+    assert data["sources"][0]["metadata"]["location"] == "Điều 1, Khoản 2"
 
 @patch("src.api.main.get_embedder")
 @patch("src.api.main.get_hybrid_retriever")
@@ -85,3 +88,95 @@ def test_ask_question_empty_query():
     response = client.post("/ask", json={"question": "   "})
     assert response.status_code == 400
     assert "cannot be empty" in response.json()["detail"].lower()
+
+
+class FakeAgent:
+    """Stands in for LegalAgent: echoes messages and remembers how many it got."""
+
+    def __init__(self, sources=None, error: Exception | None = None):
+        self.received: list[str] = []
+        self.last_sources = sources or []
+        self.error = error
+
+    def chat(self, message: str) -> str:
+        if self.error:
+            raise self.error
+        self.received.append(message)
+        return f"trả lời {len(self.received)}"
+
+
+@pytest.fixture
+def clear_sessions():
+    import src.api.main as api_main
+    api_main.sessions.clear()
+    yield api_main.sessions
+    api_main.sessions.clear()
+
+
+def make_chat_result(chunk_id: str) -> SearchResult:
+    return SearchResult(
+        chunk_id=chunk_id, text="Phạt tiền", score=0.03, doc_id=39, article_id="100/2019/nđ-cp#6",
+        article_number=6, title="Văn bản số 100/2019/NĐ-CP", category="nđ-cp", clause_number=2,
+    )
+
+
+@patch("src.api.main.create_agent")
+def test_chat_reuses_agent_per_session(mock_create_agent, clear_sessions):
+    mock_create_agent.side_effect = lambda: FakeAgent()
+
+    r1 = client.post("/chat", json={"session_id": "a", "message": "xin chào"})
+    r2 = client.post("/chat", json={"session_id": "a", "message": "câu 2"})
+    r3 = client.post("/chat", json={"session_id": "b", "message": "xin chào"})
+
+    assert r1.json()["answer"] == "trả lời 1"
+    assert r2.json()["answer"] == "trả lời 2"  # same session keeps memory
+    assert r3.json()["answer"] == "trả lời 1"  # new session starts fresh
+    assert mock_create_agent.call_count == 2
+
+
+@patch("src.api.main.create_agent")
+def test_chat_returns_unique_sources(mock_create_agent, clear_sessions):
+    sources = [make_chat_result("39_1"), make_chat_result("39_1"), make_chat_result("39_2")]
+    mock_create_agent.return_value = FakeAgent(sources=sources)
+
+    data = client.post("/chat", json={"session_id": "s", "message": "mũ bảo hiểm"}).json()
+    assert [s["id"] for s in data["sources"]] == ["39_1", "39_2"]
+    assert data["sources"][0]["metadata"]["location"] == "Điều 6, Khoản 2"
+
+
+@patch("src.api.main.create_agent")
+def test_chat_rate_limit_returns_429(mock_create_agent, clear_sessions):
+    import httpx
+    import openai
+
+    response = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1"))
+    mock_create_agent.return_value = FakeAgent(error=openai.RateLimitError("limit", response=response, body=None))
+
+    r = client.post("/chat", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 429
+    assert "quá tải" in r.json()["detail"]
+
+
+def test_chat_empty_message():
+    r = client.post("/chat", json={"session_id": "s", "message": "  "})
+    assert r.status_code == 400
+
+
+@patch("src.api.main.create_agent")
+def test_reset_chat_forgets_session(mock_create_agent, clear_sessions):
+    mock_create_agent.side_effect = lambda: FakeAgent()
+    client.post("/chat", json={"session_id": "a", "message": "câu 1"})
+
+    assert client.delete("/chat/a").json()["reset"] is True
+    r = client.post("/chat", json={"session_id": "a", "message": "câu 1 lại"})
+    assert r.json()["answer"] == "trả lời 1"
+
+
+@patch("src.api.main.create_agent")
+def test_sessions_are_capped(mock_create_agent, clear_sessions, monkeypatch):
+    import src.api.main as api_main
+    monkeypatch.setattr(api_main, "MAX_SESSIONS", 2)
+    mock_create_agent.side_effect = lambda: FakeAgent()
+    for sid in ["a", "b", "c"]:
+        client.post("/chat", json={"session_id": sid, "message": "hi"})
+    assert list(clear_sessions) == ["b", "c"]

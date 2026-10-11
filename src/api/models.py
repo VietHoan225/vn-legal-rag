@@ -14,3 +14,12 @@ class SourceDocument(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     sources: List[SourceDocument]
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+class ChatResponse(BaseModel):
+    session_id: str
+    answer: str
+    sources: List[SourceDocument]

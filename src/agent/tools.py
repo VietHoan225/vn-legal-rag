@@ -32,20 +32,18 @@ class LegalSearchTool:
             }
         }
         
+    def search(self, query: str) -> List[SearchResult]:
+        """Retrieve legal chunks for a query."""
+        return self.retriever.search(query=query, limit=5)
+
     def execute(self, query: str) -> str:
         """Execute the search and return formatted string."""
-        results = self.retriever.search(
-            query=query,
-            limit=5
-        )
-        
-        if not results:
-            return "Không tìm thấy tài liệu pháp lý nào phù hợp với truy vấn này trong cơ sở dữ liệu."
-            
-        return self._format_results(results)
-        
-    def _format_results(self, search_results: List[SearchResult]) -> str:
+        return self.format_results(self.search(query))
+
+    def format_results(self, search_results: List[SearchResult]) -> str:
         """Combine retrieved search results into a single context string."""
+        if not search_results:
+            return "Không tìm thấy tài liệu pháp lý nào phù hợp với truy vấn này trong cơ sở dữ liệu."
         context_parts = []
         for rank, res in enumerate(search_results, start=1):
             source = f"[{rank}] {res.title} ({res.location()})" if res.article_number else f"[{rank}] {res.title}"
