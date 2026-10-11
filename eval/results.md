@@ -78,3 +78,16 @@
   - Ở mức Văn bản: Hit@2 = 95.0%, Hit@4 = 96.7%, Hit@6 = 96.7%.
   - Baseline cũ trong prototype notebook đạt Hit@4 ≈ 80.0% mức văn bản.
 - **Mức Điều (Article-level):** Đã bổ sung đo lường chính xác tới từng Điều cụ thể (MRR = 0.7978).
+
+## III. Đánh giá AI Agent & Vấn đề Chunking (Case Study)
+
+### 1. Sự cố "Ảo giác" do Chunking (Hallucination)
+- **Tình huống:** Khi hỏi Agent về mức phạt không đội mũ bảo hiểm cho xe máy và xe đạp máy.
+- **Lỗi quan sát được:** Agent đưa ra mức phạt sai lệch (ghép mức phạt 100-200k của Khoản 1 vào lỗi không đội mũ bảo hiểm của Khoản 2 Điều 6 Nghị định 100/2019/NĐ-CP). Hệ quả là Agent kết luận sai logic (đi xe máy phạt nhẹ hơn xe đạp máy).
+- **Nguyên nhân cốt lõi (Root Cause):** 
+  - Mô hình lấy kết quả từ Vector DB nhưng nội dung bị "cắt ngang" do chiến lược Chunking hiện tại (`chunk_size=600`, overlap cố định). Cấu trúc của một "Điều, Khoản" luật bị phá vỡ, làm LLM đọc và suy diễn sai lệch ("râu ông nọ cắm cằm bà kia").
+  - Mô hình LLM dễ bị ảnh hưởng khi bối cảnh (context) bị cắt ghép không nguyên vẹn.
+
+### 2. Kế hoạch tối ưu (Next Steps)
+- **Cải tiến Chunking:** Thay vì cắt mù quáng theo token/ký tự (`chunk_size=600`), cần nâng cấp luồng làm sạch ở `src/ingest/` sang **Semantic Chunking theo cấu trúc Luật** (cắt dựa trên Regex các từ khóa `Điều X`, `Khoản Y`, `Điểm Z`). Điều này đảm bảo mỗi chunk chứa trọn vẹn ngữ cảnh của một vi phạm và mức phạt đi kèm, triệt tiêu lỗi ảo giác do lắp ghép.
+- **Bổ sung Eval:** Thêm bộ câu hỏi test riêng cho Agent để đo lường độ chính xác của câu trả lời cuối (Generation accuracy) thay vì chỉ đo độ chính xác của tìm kiếm (Retrieval accuracy).

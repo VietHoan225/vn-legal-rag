@@ -11,9 +11,10 @@ Hệ thống **Retrieval-Augmented Generation (RAG)** chuyên biệt để tra c
 - **Reranker Model:** `BAAI/bge-reranker-v2-m3`
 - **Sparse Retrieval:** BM25 (thư viện `bm25s`)
 - **Vector Database:** Qdrant
-- **LLM Generator:** Groq (tốc độ cao)
+- **LLM Generator:** Hỗ trợ OpenRouter (Llama-3, Gemma-2, v.v. thông qua Function Calling) và Groq.
 - **Backend API:** FastAPI
 - **Frontend UI:** Streamlit
+- **AI Agent (New!):** Tích hợp Conversation Memory và Tool-use tự động tra cứu luật dựa trên ngữ cảnh hội thoại.
 
 ## Kết quả Đánh giá (Evaluation)
 
@@ -53,6 +54,12 @@ Cách nhanh nhất để chạy toàn bộ hệ thống (Database + API + Giao d
 - `eval/`: Mã nguồn để chạy bộ đánh giá tự động (Evaluation).
 - `scripts/`: Chứa lệnh crawl dữ liệu, lập chỉ mục BM25 và đẩy vector lên Qdrant.
 
+- **Thư mục `src/agent/` (Mới):** Cấu trúc lõi của AI Agent bao gồm:
+  - `agent.py`: Vòng lặp suy luận (Agent Loop), gọi LLM và kích hoạt tool.
+  - `memory.py`: Quản lý bộ nhớ hội thoại.
+  - `tools.py`: Công cụ kết nối Hybrid Search cho Agent.
+
 ## Hướng phát triển (Tương lai)
-- Bổ sung bộ nhớ lịch sử hội thoại (Chat memory).
-- Chuyển hóa luồng RAG tĩnh thành AI Agent (sử dụng Groq Function Calling) để LLM tự quyết định khi nào cần tra cứu luật, khi nào chỉ cần giao tiếp thông thường.
+- Tối ưu hóa lại thuật toán Chunking trong `src/ingest/` (cắt chuẩn xác theo cấp độ Điều/Khoản luật thay vì cắt chữ) để giảm thiểu ảo giác của LLM.
+- Triển khai Agent lên FastAPI và tích hợp vào Streamlit UI.
+- Viết Unit Test cho Agent logic.
