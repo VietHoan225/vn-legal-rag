@@ -99,7 +99,8 @@ class HybridRetriever:
                 title=str(doc_dict.get("title", "")),
                 category=str(doc_dict.get("category", "")),
                 text=str(doc_dict.get("text", "")),
-                score=score
+                score=score,
+                clause_number=doc_dict.get("clause_number"),
             ))
 
         # 3. Combine with RRF

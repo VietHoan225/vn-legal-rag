@@ -26,6 +26,13 @@ class SearchResult:
     category: str
     text: str
     score: float
+    clause_number: int | None = None
+
+    def location(self) -> str:
+        """Human-readable citation, e.g. 'Điều 6, Khoản 2' or 'Điều 6'."""
+        if self.clause_number is not None:
+            return f"Điều {self.article_number}, Khoản {self.clause_number}"
+        return f"Điều {self.article_number}"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert search result to dictionary."""
@@ -146,6 +153,7 @@ class QdrantVectorStore(VectorStore):
                     "title": chunk["title"],
                     "category": chunk["category"],
                     "text": chunk["text"],
+                    "clause_number": chunk.get("clause_number"),
                 }
                 vector = vec.tolist() if isinstance(vec, np.ndarray) else list(vec)
                 points.append(
@@ -203,6 +211,7 @@ class QdrantVectorStore(VectorStore):
                     category=str(p.get("category", "")),
                     text=str(p.get("text", "")),
                     score=float(hit.score),
+                    clause_number=p.get("clause_number"),
                 )
             )
         return results

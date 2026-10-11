@@ -20,19 +20,20 @@ class GenerationResult(BaseModel):
 class GroqGenerator:
     """Class to interact with Groq API (Llama models) for text generation."""
 
-    def __init__(self, model_name: str = "qwen/qwen3.8-27b"):
-        """Initialize the Groq client."""
+    def __init__(self, model_name: str = "qwen/qwen3.8-27b", max_tokens: int | None = None):
+        """Initialize the Groq client. max_tokens caps output length (None = model default)."""
         if not settings.groq_api_key:
             logger.warning("groq_api_key is empty. Generation will fail if called.")
-        
+
         self.client = Groq(api_key=settings.groq_api_key, timeout=30.0)
         self.model_name = model_name
+        self.max_tokens = max_tokens
 
     def format_context(self, search_results: list[SearchResult]) -> str:
         """Combine retrieved search results into a single context string."""
         context_parts = []
         for rank, res in enumerate(search_results, start=1):
-            source = f"[{rank}] {res.title} (Điều {res.article_number})" if res.article_number else f"[{rank}] {res.title}"
+            source = f"[{rank}] {res.title} ({res.location()})" if res.article_number else f"[{rank}] {res.title}"
             text = f"Nguồn: {source}\nNội dung: {res.text}"
             context_parts.append(text)
             
@@ -52,6 +53,7 @@ class GroqGenerator:
         )
         
         logger.info("Calling Groq (%s) for generation...", self.model_name)
+        extra = {"max_tokens": self.max_tokens} if self.max_tokens else {}
         response = self.client.chat.completions.create(
             messages=[
                 {
@@ -60,6 +62,7 @@ class GroqGenerator:
                 }
             ],
             model=self.model_name,
+            **extra,
         )
         
         answer = response.choices[0].message.content or ""

@@ -133,7 +133,7 @@ def format_results_markdown(
 - **Hybrid Search (BM25):** `{'Enabled' if config_info.get('use_hybrid') else 'Disabled'}`
 - **Device:** `{config_info['device']}`
 - **Vector Store:** Qdrant (`{config_info['qdrant_url']}`), Collection: `{config_info['collection_name']}`
-- **Chunking:** `chunk_size={config_info['chunk_size']}`, `chunk_overlap={config_info['chunk_overlap']}` (prefix: `<tên văn bản> - Điều N`)
+- **Chunking:** `chunk_size={config_info['chunk_size']}`, `chunk_overlap={config_info['chunk_overlap']}` (chia theo Điều → Khoản → nhóm Điểm, prefix: `<tên văn bản> - Điều N[ - Khoản K]`)
 - **Số câu hỏi đánh giá:** {metrics['total_queries']} câu (Zalo Legal test set)
 
 ### 2. Bảng chỉ số đo lường

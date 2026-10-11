@@ -1,0 +1,72 @@
+[
+  {
+    "query_id": "gen_01",
+    "question": "Người điều khiển xe máy không đội mũ bảo hiểm bị phạt bao nhiêu tiền?",
+    "expected_articles": ["100/2019/nđ-cp#6"],
+    "expected_clause": 2,
+    "expected_facts": ["200.000", "300.000"]
+  },
+  {
+    "query_id": "gen_02",
+    "question": "Đi xe đạp điện mà không đội mũ bảo hiểm thì bị xử phạt thế nào?",
+    "expected_articles": ["100/2019/nđ-cp#8"],
+    "expected_clause": 3,
+    "expected_facts": ["200.000", "300.000"]
+  },
+  {
+    "query_id": "gen_03",
+    "question": "Xe máy vượt đèn đỏ bị phạt bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#6"],
+    "expected_clause": 4,
+    "expected_facts": ["600.000", "1.000.000"]
+  },
+  {
+    "query_id": "gen_04",
+    "question": "Lái ô tô không chấp hành hiệu lệnh của đèn tín hiệu giao thông bị phạt tiền bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#5"],
+    "expected_clause": 5,
+    "expected_facts": ["3.000.000", "5.000.000"]
+  },
+  {
+    "query_id": "gen_05",
+    "question": "Ô tô chạy quá tốc độ quy định từ 5 km/h đến dưới 10 km/h bị phạt bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#5"],
+    "expected_clause": 3,
+    "expected_facts": ["800.000", "1.000.000"]
+  },
+  {
+    "query_id": "gen_06",
+    "question": "Mức phạt đối với xe máy chạy quá tốc độ từ 10 km/h đến 20 km/h là bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#6"],
+    "expected_clause": 4,
+    "expected_facts": ["600.000", "1.000.000"]
+  },
+  {
+    "query_id": "gen_07",
+    "question": "Tài xế ô tô dùng tay sử dụng điện thoại di động khi đang lái xe bị phạt thế nào?",
+    "expected_articles": ["100/2019/nđ-cp#5"],
+    "expected_clause": 4,
+    "expected_facts": ["1.000.000", "2.000.000"]
+  },
+  {
+    "query_id": "gen_08",
+    "question": "Người đi xe máy có nồng độ cồn nhưng chưa vượt quá 50 miligam/100 mililít máu bị phạt bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#6"],
+    "expected_clause": 6,
+    "expected_facts": ["2.000.000", "3.000.000"]
+  },
+  {
+    "query_id": "gen_09",
+    "question": "Lái ô tô mà nồng độ cồn vượt quá 80 miligam/100 mililít máu thì bị phạt tiền bao nhiêu?",
+    "expected_articles": ["100/2019/nđ-cp#5"],
+    "expected_clause": 10,
+    "expected_facts": ["30.000.000", "40.000.000"]
+  },
+  {
+    "query_id": "gen_10",
+    "question": "Đi xe máy chở theo 3 người thì bị phạt bao nhiêu tiền?",
+    "expected_articles": ["100/2019/nđ-cp#6"],
+    "expected_clause": 3,
+    "expected_facts": ["400.000", "600.000"]
+  }
+]

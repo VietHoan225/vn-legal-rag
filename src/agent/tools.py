@@ -48,7 +48,7 @@ class LegalSearchTool:
         """Combine retrieved search results into a single context string."""
         context_parts = []
         for rank, res in enumerate(search_results, start=1):
-            source = f"[{rank}] {res.title} (Điều {res.article_number})" if res.article_number else f"[{rank}] {res.title}"
+            source = f"[{rank}] {res.title} ({res.location()})" if res.article_number else f"[{rank}] {res.title}"
             text = f"Nguồn: {source}\nNội dung: {res.text}"
             context_parts.append(text)
             
