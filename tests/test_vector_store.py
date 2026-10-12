@@ -75,14 +75,34 @@ def test_search(mock_qdrant_client):
         "title": "Văn bản số 99/2021/NĐ-CP",
         "category": "nđ-cp",
         "text": "Nội dung Điều 1",
+        "clause_number": 2,
     }
-    mock_qdrant_client.search.return_value = [hit]
+    mock_qdrant_client.query_points.return_value = MagicMock(points=[hit])
 
     store = QdrantVectorStore(client=mock_qdrant_client)
     results = store.search("test_col", query_vector=[0.1] * 384, limit=1)
+
+    mock_qdrant_client.query_points.assert_called_once()
+    kwargs = mock_qdrant_client.query_points.call_args.kwargs
+    assert kwargs["collection_name"] == "test_col"
+    assert kwargs["limit"] == 1
+    assert kwargs["query_filter"] is None
 
     assert len(results) == 1
     assert isinstance(results[0], SearchResult)
     assert results[0].doc_id == 1
     assert results[0].article_number == 1
+    assert results[0].clause_number == 2
     assert results[0].score == 0.88
+
+
+def test_search_with_category_filter(mock_qdrant_client):
+    """Category filter is passed to Qdrant as a payload match."""
+    mock_qdrant_client.query_points.return_value = MagicMock(points=[])
+
+    store = QdrantVectorStore(client=mock_qdrant_client)
+    assert store.search("test_col", query_vector=[0.1] * 384, category="nđ-cp") == []
+
+    query_filter = mock_qdrant_client.query_points.call_args.kwargs["query_filter"]
+    assert query_filter.must[0].key == "category"
+    assert query_filter.must[0].match.value == "nđ-cp"

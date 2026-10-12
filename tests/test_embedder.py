@@ -12,7 +12,7 @@ def mock_sentence_transformer():
     with patch("src.retrieval.embedder.SentenceTransformer") as mock_cls:
         mock_instance = MagicMock()
         mock_instance.max_seq_length = 128
-        mock_instance.get_sentence_embedding_dimension.return_value = 384
+        mock_instance.get_embedding_dimension.return_value = 384
 
         # Mock tokenizer encode
         mock_tokenizer = MagicMock()
