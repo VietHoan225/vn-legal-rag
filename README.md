@@ -1,6 +1,6 @@
 # VN Legal RAG
 
-Hệ thống **Retrieval-Augmented Generation (RAG)** chuyên biệt để tra cứu và giải đáp các văn bản pháp luật Việt Nam. Hệ thống kết hợp giữa tìm kiếm Dense (Vector) và Sparse (BM25) cùng Cross-encoder Reranking để mang lại độ chính xác cực cao (Hit Rate 96%).
+Hệ thống **Retrieval-Augmented Generation (RAG)** chuyên biệt để tra cứu và giải đáp các văn bản pháp luật Việt Nam. Hệ thống kết hợp giữa tìm kiếm Dense (Vector) và Sparse (BM25) cùng Cross-encoder Reranking để mang lại độ chính xác cao (Hit@4 mức văn bản 95%).
 
 ## Dữ liệu (Dataset)
 **Văn bản pháp luật thật** (luật, nghị định, thông tư) trích từ dataset [Zalo AI Challenge 2021 — Legal Text Retrieval](https://huggingface.co/datasets/minhnguyent546/zalo-ai-legal-text-retrieval-2021): **249 văn bản, 10.000 điều luật, ~14,3 triệu ký tự**. Kèm **60 câu hỏi tình huống thật có ground-truth** để chấm điểm retrieval khách quan.
@@ -22,27 +22,55 @@ Hệ thống sử dụng bộ 60 câu hỏi pháp luật phức tạp (test set)
 
 | Phiên bản | Hit@4 (Văn bản) | Hit@4 (Điều luật) | MRR (Điều luật) |
 |---|---|---|---|
-| Vector thuần | 78.33% | 48.33% | 0.3825 |
-| Vector + Reranker | 85.00% | 61.67% | 0.5708 |
-| **Hybrid (BM25) + Reranker** | **96.67%** | **90.00%** | **0.7978** |
+| Vector thuần | 78.33% | 45.00% | 0.4039 |
+| Vector + Reranker | 85.00% | 63.33% | 0.6083 |
+| **Hybrid (BM25) + Reranker** | **95.00%** | **85.00%** | **0.7811** |
 
-*(Xem chi tiết trong file `eval/results.md`)*
+Số liệu đo ngày 2026-10-11 với chunking theo cấu trúc Điều → Khoản (52.263 chunk).
+
+**Generation:** trên bộ 10 câu hỏi mức phạt giao thông có đáp án chuẩn (`eval/generation_questions.json`), câu trả lời đúng mức phạt 10/10 câu và trích đúng Điều, Khoản 9/10 câu.
+
+*(Xem chi tiết và so sánh với chunking cũ trong file `eval/results.md`)*
 
 ## Hướng dẫn Chạy ứng dụng bằng Docker (Khuyên dùng)
 
-Cách nhanh nhất để chạy toàn bộ hệ thống (Database + API + Giao diện) là dùng Docker Compose.
+Docker Compose chạy 3 service: **Qdrant** (vector DB), **API** (FastAPI, `/ask` và `/chat`) và **UI** (Streamlit). Mặc định API chạy trên **CPU**, không cần GPU.
 
-1. Đảm bảo bạn đã cài đặt [Docker](https://docs.docker.com/get-docker/) và Docker Compose.
-2. Sao chép file `.env.example` thành `.env` và điền `GROQ_API_KEY`:
-   ```bash
-   cp .env.example .env
-   ```
-3. Khởi chạy toàn bộ hệ thống:
-   ```bash
-   docker-compose up -d --build
-   ```
-4. Truy cập giao diện Chatbot tại: [http://localhost:8501](http://localhost:8501)
-5. Truy cập API Docs (Swagger) tại: [http://localhost:8000/docs](http://localhost:8000/docs)
+### 1. Chuẩn bị
+- Cài [Docker](https://docs.docker.com/get-docker/) (Docker Compose v2).
+- Tạo file `.env` từ mẫu và điền API key:
+  ```bash
+  cp .env.example .env
+  # OPENROUTER_API_KEY: dùng cho chatbot (/chat)
+  # GROQ_API_KEY: dùng cho /ask và eval generation
+  ```
+
+### 2. Chuẩn bị dữ liệu (chỉ làm một lần)
+Index không nằm trong image. API đọc BM25 index từ `data/processed/bm25_index`, còn vector nằm trong `qdrant_storage/`. Cả hai được mount từ máy vào container. Dữ liệu thô đặt trong `data/raw/`.
+
+```bash
+pip install torch            # chọn bản CPU hoặc CUDA phù hợp với máy
+pip install -r requirements.txt
+docker compose up -d qdrant  # bật Qdrant trước để ingest
+python scripts/prepare_data.py
+python scripts/ingest.py --recreate
+python scripts/build_bm25.py
+```
+
+### 3. Chạy toàn bộ hệ thống
+```bash
+docker compose up -d --build
+```
+- Chatbot: [http://localhost:8501](http://localhost:8501)
+- API Docs (Swagger): [http://localhost:8000/docs](http://localhost:8000/docs)
+
+Lần đầu API sẽ tải embedding model về `~/.cache/huggingface` (được mount vào container để dùng lại). UI chỉ khởi động sau khi API báo healthy.
+
+### Chạy bằng GPU (tùy chọn)
+Cần GPU NVIDIA và [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html):
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
 
 ## Cấu trúc thư mục chính
 
@@ -60,6 +88,6 @@ Cách nhanh nhất để chạy toàn bộ hệ thống (Database + API + Giao d
   - `tools.py`: Công cụ kết nối Hybrid Search cho Agent.
 
 ## Hướng phát triển (Tương lai)
-- Tối ưu hóa lại thuật toán Chunking trong `src/ingest/` (cắt chuẩn xác theo cấp độ Điều/Khoản luật thay vì cắt chữ) để giảm thiểu ảo giác của LLM.
-- Triển khai Agent lên FastAPI và tích hợp vào Streamlit UI.
-- Viết Unit Test cho Agent logic.
+- Thử embedding model mạnh hơn (`BAAI/bge-m3`, `intfloat/multilingual-e5-base`): model hiện tại chỉ nhận 128 token nên chunk dài có thể bị cắt.
+- Thêm reranker vào tool tra cứu của Agent (hiện tool chỉ dùng Hybrid Search).
+- Mở rộng bộ eval generation (`eval/generation_questions.json`) ra ngoài lĩnh vực giao thông.

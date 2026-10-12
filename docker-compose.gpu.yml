@@ -1,0 +1,15 @@
+# GPU override (needs NVIDIA Container Toolkit on the host):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+services:
+  api:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130
+    image: vn-legal-rag-api-gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

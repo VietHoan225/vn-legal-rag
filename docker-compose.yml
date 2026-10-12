@@ -1,5 +1,5 @@
-version: '3.8'
-
+# CPU by default. With an NVIDIA GPU + NVIDIA Container Toolkit:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 services:
   qdrant:
     image: qdrant/qdrant:v1.19.2
@@ -12,42 +12,44 @@ services:
     restart: unless-stopped
 
   api:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.api
+    image: vn-legal-rag-api
     container_name: vn_legal_api
     ports:
       - "8000:8000"
-    environment:
-      - QDRANT_URL=http://qdrant:6333
-      # We read GROQ_API_KEY from the host machine's .env file
     env_file:
       - .env
+    environment:
+      # Overrides the localhost URL from .env: inside Docker, Qdrant is the "qdrant" service
+      - QDRANT_URL=http://qdrant:6333
     volumes:
-      # Mount the models cache so it doesn't redownload every time
+      # Reuse downloaded HuggingFace models between runs
       - ~/.cache/huggingface:/root/.cache/huggingface
-      # Mount data folder for BM25 index
-      - ./data:/app/data
+      # BM25 index (data/processed/bm25_index) built on the host
+      - ./data:/app/data:ro
     depends_on:
       - qdrant
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
   ui:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.ui
+    image: vn-legal-rag-ui
     container_name: vn_legal_ui
     ports:
       - "8501:8501"
     environment:
       - API_URL=http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
