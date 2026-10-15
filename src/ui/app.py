@@ -138,7 +138,7 @@ def error_text(exc: requests.exceptions.RequestException) -> str:
             detail = exc.response.json().get("detail", "")
         except ValueError:
             detail = exc.response.text
-        icon = "⏳" if exc.response.status_code in (429, 504) else "❌"
+        icon = "⏳" if exc.response.status_code in (429, 503, 504) else "❌"
         return f"{icon} {detail or exc}"
     return f"❌ Lỗi: {exc}"
 

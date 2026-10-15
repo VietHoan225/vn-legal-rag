@@ -43,12 +43,15 @@ Trình duyệt ─ gõ câu hỏi ─▶ Streamlit (:8501)                      
                               ▼
                           HybridRetriever                          src/retrieval/hybrid_search.py
                               │  embed câu hỏi → Qdrant (:6333) + BM25 → gộp bằng RRF
+                              │  → reranker chấm lại 15 ứng viên, giữ 5 đoạn tốt nhất
                               ▼
                               │ 3. đưa đoạn luật cho LLM, LLM viết câu trả lời ─▶ OpenRouter
                               ▼
         câu trả lời chảy ngược từng đoạn: Agent → FastAPI → Streamlit → màn hình
         (cuối cùng là danh sách nguồn trích dẫn, ghi cả Khoản)
 ```
+
+Nếu bước tra luật bị lỗi (ví dụ Qdrant không chạy), agent dừng và API trả lỗi 503 thay vì để LLM tự trả lời không có căn cứ.
 
 Câu chào hỏi hoặc câu ngoài lề không qua bước 2 và 3: LLM trả lời ngay trong một lần gọi. Câu hỏi tiếp nối ("Thế còn xe đạp điện thì sao?") thường cũng không cần tra lại, vì LLM đã có kết quả tra cứu của lượt trước trong memory.
 
@@ -164,5 +167,4 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 ## Hướng phát triển (Tương lai)
 - Thử embedding model mạnh hơn (`BAAI/bge-m3`, `intfloat/multilingual-e5-base`): model hiện tại chỉ nhận 128 token nên chunk dài có thể bị cắt.
-- Thêm reranker vào tool tra cứu của Agent (hiện tool chỉ dùng Hybrid Search).
 - Mở rộng bộ eval generation (`eval/generation_questions.json`) ra ngoài lĩnh vực giao thông.

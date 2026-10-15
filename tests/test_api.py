@@ -255,3 +255,23 @@ def test_chat_stream_provider_error_returns_503(mock_create_agent, clear_session
     r = client.post("/chat/stream", json={"session_id": "s", "message": "hỏi"})
     assert r.status_code == 503
     assert "gián đoạn" in r.json()["detail"]
+
+
+@patch("src.api.main.create_agent")
+def test_chat_stream_search_failure_returns_503(mock_create_agent, clear_sessions):
+    from src.agent.tools import SearchError
+
+    mock_create_agent.return_value = FakeAgent(error=SearchError("qdrant down"), fail_after=0)
+
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 503
+    assert "cơ sở dữ liệu pháp luật" in r.json()["detail"]
+
+
+@patch("src.api.main.create_agent")
+def test_chat_search_failure_returns_503(mock_create_agent, clear_sessions):
+    from src.agent.tools import SearchError
+
+    mock_create_agent.return_value = FakeAgent(error=SearchError("qdrant down"))
+    r = client.post("/chat", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 503

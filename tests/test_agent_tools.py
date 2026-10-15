@@ -1,6 +1,8 @@
 """Unit tests for agent tools (no model or LLM calls)."""
 
-from src.agent.tools import LegalSearchTool
+import pytest
+
+from src.agent.tools import LegalSearchTool, SearchError
 from src.retrieval.vector_store import SearchResult
 
 
@@ -47,3 +49,52 @@ def test_tool_empty_results():
     """Tool returns a not-found message when retrieval is empty."""
     tool = LegalSearchTool(FakeRetriever([]))  # type: ignore[arg-type]
     assert "Không tìm thấy" in tool.execute("abc")
+
+
+class FakeReranker:
+    """Reranker stub: reverses the candidates and keeps top_k."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, int, int]] = []
+
+    def rerank(self, query: str, results: list[SearchResult], top_k: int = 5) -> list[SearchResult]:
+        self.calls.append((query, len(results), top_k))
+        return list(reversed(results))[:top_k]
+
+
+class LimitRetriever:
+    """Retriever stub that records the limit it was asked for and returns `limit` results."""
+
+    def __init__(self):
+        self.limits: list[int] = []
+
+    def search(self, query: str, limit: int = 5) -> list[SearchResult]:
+        self.limits.append(limit)
+        return [make_result(i, None) for i in range(1, limit + 1)]
+
+
+class BrokenRetriever:
+    def search(self, query: str, limit: int = 5):
+        raise ConnectionError("qdrant down")
+
+
+def test_tool_without_reranker_fetches_top_k():
+    retriever = LimitRetriever()
+    tool = LegalSearchTool(retriever, top_k=4)  # type: ignore[arg-type]
+    assert len(tool.search("q")) == 4
+    assert retriever.limits == [4]
+
+
+def test_tool_with_reranker_fetches_more_then_keeps_top_k():
+    retriever, reranker = LimitRetriever(), FakeReranker()
+    tool = LegalSearchTool(retriever, reranker, top_k=5)  # type: ignore[arg-type]
+    results = tool.search("mũ bảo hiểm")
+    assert retriever.limits == [15]
+    assert reranker.calls == [("mũ bảo hiểm", 15, 5)]
+    assert [r.article_number for r in results] == [15, 14, 13, 12, 11]  # reranker's order is kept
+
+
+def test_tool_wraps_retrieval_failure_in_search_error():
+    tool = LegalSearchTool(BrokenRetriever())  # type: ignore[arg-type]
+    with pytest.raises(SearchError, match="qdrant down"):
+        tool.search("q")

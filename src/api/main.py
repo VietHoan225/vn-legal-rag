@@ -18,7 +18,7 @@ from src.retrieval.hybrid_search import HybridRetriever
 from src.generation.generator import GroqGenerator
 from src.api.models import AskRequest, AskResponse, ChatRequest, ChatResponse, SourceDocument
 from src.agent.agent import LegalAgent
-from src.agent.tools import LegalSearchTool
+from src.agent.tools import LegalSearchTool, SearchError
 
 # Show INFO logs (timings) from project code only; libraries stay at WARNING
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -27,6 +27,7 @@ logging.getLogger("src").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 BUSY_MESSAGE = "Hệ thống đang quá tải (LLM giới hạn lượt gọi). Vui lòng thử lại sau khoảng 1 phút."
+SEARCH_UNAVAILABLE_MESSAGE = "Không tra cứu được cơ sở dữ liệu pháp luật lúc này nên tôi không trả lời để tránh thiếu căn cứ. Vui lòng thử lại sau."
 UNAVAILABLE_MESSAGE = "Dịch vụ LLM tạm thời gián đoạn. Vui lòng thử lại sau ít phút."
 MAX_SESSIONS = 100
 
@@ -98,8 +99,8 @@ sessions_lock = Lock()
 
 
 def create_agent() -> LegalAgent:
-    """Build a new agent that shares the loaded retriever."""
-    return LegalAgent(search_tool=LegalSearchTool(get_hybrid_retriever()))
+    """Build a new agent that shares the loaded retriever and reranker."""
+    return LegalAgent(search_tool=LegalSearchTool(get_hybrid_retriever(), get_reranker()))
 
 
 def get_session_agent(session_id: str) -> LegalAgent:
@@ -124,6 +125,9 @@ def unique_sources(agent: LegalAgent) -> list[SourceDocument]:
 
 def llm_http_error(exc: Exception) -> HTTPException:
     """Map an LLM client failure to the HTTP error the caller should see."""
+    if isinstance(exc, SearchError):
+        logger.error("Legal search unavailable: %s", exc)
+        return HTTPException(status_code=503, detail=SEARCH_UNAVAILABLE_MESSAGE)
     if isinstance(exc, openai.RateLimitError):
         logger.warning("LLM rate limit: %s", exc)
         return HTTPException(status_code=429, detail=BUSY_MESSAGE)

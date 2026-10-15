@@ -194,16 +194,21 @@ HƯỚNG DẪN QUAN TRỌNG:
         ))
 
     def _search(self, arguments: str) -> str:
-        """Run the legal search tool from raw JSON arguments and return text for the LLM."""
+        """Run the legal search tool from raw JSON arguments and return text for the LLM.
+
+        Bad arguments are the LLM's mistake, so they go back to it as text. A failing
+        search (SearchError) is not: it propagates so we never answer without sources.
+        """
         name = "search_legal_docs"
         try:
             query = json.loads(arguments).get("query", "")
-            logger.info("Executing tool: %s with query: '%s'", name, query)
-            t0 = time.perf_counter()
-            results = self.search_tool.search(query)
-            logger.info("Tool %s: %d result(s) in %.2fs", name, len(results), time.perf_counter() - t0)
-            self.last_sources.extend(results)
-            return self.search_tool.format_results(results)
-        except Exception as e:
-            logger.error("Error executing tool %s: %s", name, e)
-            return f"Error: {e}"
+        except (ValueError, AttributeError) as e:
+            logger.warning("Bad arguments for %s: %s", name, e)
+            return f"Error: invalid arguments ({e})"
+
+        logger.info("Executing tool: %s with query: '%s'", name, query)
+        t0 = time.perf_counter()
+        results = self.search_tool.search(query)
+        logger.info("Tool %s: %d result(s) in %.2fs", name, len(results), time.perf_counter() - t0)
+        self.last_sources.extend(results)
+        return self.search_tool.format_results(results)

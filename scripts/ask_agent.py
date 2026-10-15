@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.retrieval.embedder import Embedder
 from src.retrieval.vector_store import QdrantVectorStore
 from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.reranker import Reranker
 from src.agent.tools import LegalSearchTool
 from src.agent.agent import LegalAgent
 
@@ -25,7 +26,7 @@ def main():
     embedder = Embedder()
     vector_store = QdrantVectorStore()
     retriever = HybridRetriever(vector_store=vector_store, embedder=embedder)
-    search_tool = LegalSearchTool(retriever=retriever)
+    search_tool = LegalSearchTool(retriever=retriever, reranker=Reranker())
     
     # Model có hỗ trợ tool-use của OpenRouter
     agent = LegalAgent(search_tool=search_tool)

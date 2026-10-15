@@ -7,7 +7,7 @@ import pytest
 
 from src.agent.agent import LegalAgent
 from src.agent.memory import ConversationMemory, Message
-from src.agent.tools import LegalSearchTool
+from src.agent.tools import LegalSearchTool, SearchError
 from src.retrieval.vector_store import SearchResult
 
 
@@ -213,3 +213,29 @@ def test_unknown_tool_gets_an_error_result_in_memory():
     assert "".join(agent.chat_stream("hi")) == "xong"
     tool_msgs = [m for m in completions.calls[1] if m["role"] == "tool"]
     assert tool_msgs[0]["tool_call_id"] == "call_x" and "unknown tool" in tool_msgs[0]["content"]
+
+
+def test_search_failure_stops_the_chat_and_restores_memory():
+    """A failing search must not turn into an answer written without sources."""
+    class BrokenTool(LegalSearchTool):
+        def search(self, query):
+            raise SearchError("qdrant down")
+
+    agent, completions, _ = make_agent([tool_reply("mũ bảo hiểm"), text_reply("câu trả lời không căn cứ")])
+    agent.search_tool = BrokenTool(FakeRetriever([]))  # type: ignore[arg-type]
+    before = list(agent.memory.messages)
+
+    with pytest.raises(SearchError):
+        agent.chat("Không đội mũ bảo hiểm phạt bao nhiêu?")
+
+    assert len(completions.calls) == 1  # no second LLM call after the failure
+    assert agent.memory.messages == before
+
+
+def test_bad_tool_arguments_go_back_to_the_llm():
+    call = SimpleNamespace(index=0, id="c1", function=SimpleNamespace(name="search_legal_docs", arguments="{not json"))
+    agent, completions, retriever = make_agent([[chunk(tool_calls=[call])], text_reply("xin lỗi")])
+    assert "".join(agent.chat_stream("hi")) == "xin lỗi"
+    tool_msgs = [m for m in completions.calls[1] if m["role"] == "tool"]
+    assert "invalid arguments" in tool_msgs[0]["content"]
+    assert retriever.queries == []
