@@ -195,7 +195,7 @@ Nhận xét:
 
 ---
 
-## Kết quả đánh giá Generation - 2026-10-11 23:05
+## Kết quả đánh giá Generation
 
 ### 1. Cấu hình thử nghiệm
 - **Generator:** `GroqGenerator` (`qwen/qwen3.8-27b`), chưa giới hạn max_tokens
@@ -218,3 +218,34 @@ Nhận xét:
 - Không còn lỗi ghép sai Khoản như case study mũ bảo hiểm (mục III): cả xe máy (Điều 6 Khoản 2) và xe đạp điện (Điều 8 Khoản 3) đều trả lời đúng 200.000 – 300.000 đồng.
 - Câu sai duy nhất `gen_03` ("Xe máy vượt đèn đỏ..."): retrieval xếp Điều 47 (vượt đèn đỏ ở đường ngang đường sắt) lên đầu thay vì Điều 6 Khoản 4. Mức phạt trùng nhau nên vẫn tính đúng dữ kiện. Đây là lỗi retrieval.
 - Bộ Zalo test (60 câu) chưa có kết quả hợp lệ: Groq giới hạn 1.000 output token/phút cho model này, 42/60 câu bị lỗi 429. Script hiện mặc định chỉ chạy 10 câu mỗi bộ và tự retry khi gặp 429.
+
+
+---
+
+## Đo độ trễ chatbot: streaming - 2026-10-15
+
+### 1. Cấu hình
+- **Agent:** `LegalAgent` (giữ nguyên vòng lặp tool), LLM `nvidia/nemotron-3-ultra-550b-a55b:free` qua OpenRouter
+- **Retrieval:** Hybrid (Dense + BM25), embedding `paraphrase-multilingual-MiniLM-L12-v2` trên `cuda` (RTX 2060), Qdrant chạy Docker
+- **Cách đo:** `scripts/profile_chat.py`, 4 câu trong cùng một session, **mỗi chế độ chạy 1 lần**
+  - `/chat`: trả về khi đã có đủ câu trả lời, nên người dùng chờ hết thời gian đó
+  - `/chat/stream`: trả lời từng đoạn, "token đầu tiên" là lúc người dùng bắt đầu đọc được
+
+### 2. Kết quả (giây)
+
+| Loại câu | Câu hỏi | `/chat` (chờ hết) | `/chat/stream`: token đầu tiên | `/chat/stream`: tổng |
+|---|---|---|---|---|
+| chào hỏi | xin chào | 4.7 | 6.8 | 7.1 |
+| ngoài lề | 1 + 1 = ? | 2.8 | 2.9 | 3.8 |
+| pháp luật | Đi xe máy không đội mũ bảo hiểm bị phạt bao nhiêu? | 26.0 | **7.3** | 18.0 |
+| tiếp nối | Thế còn xe đạp điện thì sao? | 25.3 | **5.3** | 18.9 |
+
+### 3. Thời gian nằm ở đâu (log phía server, câu pháp luật)
+- Bước LLM quyết định gọi tool: 4.1 - 10.7s
+- **Tra luật (hybrid search): 0.03 - 0.23s** (embed 28 - 204ms, Qdrant 4 - 24ms, BM25 1 - 2ms), gần như không đáng kể
+- Bước LLM sinh câu trả lời: 11 - 15s, trong đó token đầu tiên mất khoảng 3s, phần còn lại là sinh dần ra
+
+### 4. Nhận xét
+- Với câu pháp luật, người dùng bắt đầu đọc được sau khoảng 5 - 7s thay vì chờ 25 - 26s.
+- Streaming không làm tổng thời gian ngắn đi. Chênh lệch tổng giữa hai lần chạy (26s so với 18s) chủ yếu do model free dao động từ lần gọi này sang lần gọi khác, vì mỗi chế độ chỉ chạy 1 lần.
+- Nút thắt nằm ở LLM (hai lần gọi, mỗi lần chậm), không phải retrieval. Muốn giảm tổng thời gian thật sự thì phải bớt lần gọi LLM hoặc đổi model.

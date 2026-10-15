@@ -1,6 +1,7 @@
 """Hybrid Search module using Qdrant (Dense) and BM25 (Sparse) with RRF."""
 
 import logging
+import time
 from typing import List
 from pathlib import Path
 import bm25s
@@ -68,12 +69,15 @@ class HybridRetriever:
     ) -> List[SearchResult]:
         """Perform hybrid search and return fused results."""
         # 1. Dense Search
+        t0 = time.perf_counter()
         query_vec = self.embedder.embed_query(query)
+        t_embed = time.perf_counter()
         dense_results = self.vector_store.search(
             collection_name=settings.qdrant_collection_name,
             query_vector=query_vec,
             limit=limit
         )
+        t_dense = time.perf_counter()
 
         # 2. Sparse Search
         if not self.bm25_retriever:
@@ -103,5 +107,12 @@ class HybridRetriever:
                 clause_number=doc_dict.get("clause_number"),
             ))
 
+        t_sparse = time.perf_counter()
+
         # 3. Combine with RRF
-        return self._rrf_combine(dense_results, sparse_results)
+        fused = self._rrf_combine(dense_results, sparse_results)
+        logger.info(
+            "Hybrid search: embed %.0fms, qdrant %.0fms, bm25 %.0fms",
+            (t_embed - t0) * 1000, (t_dense - t_embed) * 1000, (t_sparse - t_dense) * 1000,
+        )
+        return fused
