@@ -83,7 +83,7 @@ def run_set(
     records = []
     for i, item in enumerate(questions, start=1):
         question = item["question"]
-        results = retriever.search(query=question, limit=top_k * 3)
+        results = retriever.search(query=question, limit=max(settings.rerank_candidates, top_k))
         results = reranker.rerank(question, results, top_k=top_k)
 
         error = None
@@ -132,7 +132,7 @@ def format_results_markdown(
 
 ### 1. Cấu hình thử nghiệm
 - **Generator:** `GroqGenerator` (`{config_info['llm_model']}`), max_tokens={config_info['max_tokens']}
-- **Retrieval:** Hybrid (Dense + BM25) + Rerank (`{config_info['reranker_model']}`), top_k={config_info['top_k']} đoạn làm context
+- **Retrieval:** Hybrid (Dense + BM25) + Rerank (`{config_info['reranker_model']}`) trên {config_info['candidates']} ứng viên, top_k={config_info['top_k']} đoạn làm context
 - **Embedding Model:** `{config_info['embedding_model']}`, device `{config_info['device']}`
 - **Chunking:** `chunk_size={config_info['chunk_size']}`, `chunk_overlap={config_info['chunk_overlap']}` (Điều → Khoản → nhóm Điểm)
 - **Câu trả lời chi tiết:** `{config_info['output_file']}`
@@ -204,6 +204,7 @@ def main() -> None:
         "embedding_model": settings.embedding_model,
         "device": settings.resolved_device,
         "top_k": args.top_k,
+        "candidates": max(settings.rerank_candidates, args.top_k),
         "max_tokens": args.max_tokens,
         "chunk_size": settings.chunk_size,
         "chunk_overlap": settings.chunk_overlap,

@@ -15,16 +15,19 @@ logger = logging.getLogger(__name__)
 class HybridRetriever:
     """Combines Dense Search and Sparse Search using Reciprocal Rank Fusion (RRF)."""
 
-    def __init__(self, vector_store: QdrantVectorStore, embedder: Embedder, bm25_dir: str = "data/processed/bm25_index"):
+    def __init__(self, vector_store: QdrantVectorStore, embedder: Embedder, bm25_dir: str | Path | None = None):
         self.vector_store = vector_store
         self.embedder = embedder
-        
-        bm25_path = Path(bm25_dir)
+
+        bm25_path = Path(bm25_dir) if bm25_dir else settings.bm25_dir
         if bm25_path.exists():
-            logger.info("Loading BM25 index from %s", bm25_dir)
-            self.bm25_retriever = bm25s.BM25.load(bm25_dir, load_corpus=True)
+            logger.info("Loading BM25 index from %s", bm25_path)
+            self.bm25_retriever = bm25s.BM25.load(str(bm25_path), load_corpus=True)
         else:
-            logger.warning("BM25 index not found at %s. Hybrid search will fallback to Dense only.", bm25_dir)
+            logger.warning(
+                "BM25 index not found at %s. Hybrid search will fallback to Dense only.",
+                bm25_path.resolve(),
+            )
             self.bm25_retriever = None
 
     def _rrf_combine(
@@ -60,14 +63,12 @@ class HybridRetriever:
             
         return final_results
 
-    def search(
-        self, 
-        query: str, 
-        limit: int = 5,
-        dense_weight: float = 1.0, 
-        sparse_weight: float = 1.0
-    ) -> List[SearchResult]:
-        """Perform hybrid search and return fused results."""
+    def search(self, query: str, limit: int = 5) -> List[SearchResult]:
+        """Perform hybrid search and return at most `limit` fused results.
+
+        Each branch fetches `limit` hits; their union can hold up to 2 * limit
+        chunks, so the fused list is cut back to `limit`.
+        """
         # 1. Dense Search
         t0 = time.perf_counter()
         query_vec = self.embedder.embed_query(query)
@@ -110,7 +111,7 @@ class HybridRetriever:
         t_sparse = time.perf_counter()
 
         # 3. Combine with RRF
-        fused = self._rrf_combine(dense_results, sparse_results)
+        fused = self._rrf_combine(dense_results, sparse_results)[:limit]
         logger.info(
             "Hybrid search: embed %.0fms, qdrant %.0fms, bm25 %.0fms",
             (t_embed - t0) * 1000, (t_dense - t_embed) * 1000, (t_sparse - t_dense) * 1000,

@@ -368,3 +368,48 @@ Nhận xét:
 - Với bge-m3, Dense + Rerank bằng Hybrid + Rerank ở mức Điều: BM25 gần như không còn đóng góp thêm.
 - Chi phí khi chạy (thêm khoảng 140 ms mỗi câu hỏi trên CPU) rất nhỏ so với 15 - 30 giây của LLM. Chi phí lớn là ingest (38 phút, làm một lần) và RAM.
 - Ghi chú: một lần chạy Hybrid + Rerank bị dừng không có lỗi và không ghi kết quả; chạy lại thì bình thường. Chưa rõ nguyên nhân (log kernel không có dấu hiệu hết RAM). Hiện tượng giống lần chạy ngày 2026-10-11.
+
+---
+
+## Cố định số ứng viên đưa vào rerank - 2026-10-15
+
+### 1. Vấn đề và cách sửa
+- Trước đây `HybridRetriever.search(limit)` trả về cả danh sách gộp RRF (từ `limit` đến `2 × limit` đoạn), và mỗi nơi tự tính số ứng viên bằng `top_k × 3`. Vì vậy reranker chấm số ứng viên khác nhau giữa các cấu hình: Dense + Rerank chấm 18, Hybrid + Rerank chấm 18 - 36 (trong eval). Hai cấu hình không so được với nhau.
+- Hiện tại: `search()` trả về đúng `limit` đoạn, và mọi nơi có rerank dùng chung `RERANK_CANDIDATES` (mặc định 30).
+- Thêm chỉ số **Recall@N** (đo trước rerank): đáp án có nằm trong N kết quả đầu của retriever không.
+
+### 2. Cấu hình
+- **Embedding Model:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, collection `legal_chunks`
+- **Reranker Model:** `BAAI/bge-reranker-v2-m3`, device `cuda` (RTX 2060)
+- **Chunking:** `chunk_size=600`, `chunk_overlap=80` (Điều → Khoản → nhóm Điểm), cùng BM25 index
+- **Số câu hỏi đánh giá:** 60 câu (Zalo Legal test set). Mỗi cấu hình chạy 1 lần.
+
+### 3. Recall trước rerank (mức Điều)
+
+| Retriever | Recall@10 | Recall@20 | Recall@30 | Recall@50 |
+|---|---|---|---|---|
+| Dense | 56.67% | 63.33% | 66.67% | 73.33% |
+| Hybrid | 83.33% | 88.33% | 88.33% | 93.33% |
+
+Mức Văn bản, Hybrid: 96.67% / 98.33% / 98.33% / 100.00%.
+
+### 4. Sau rerank (mức Điều)
+
+| Cấu hình | Ứng viên | Hit@4 | Hit@6 | MRR | Rerank trung vị |
+|---|---|---|---|---|---|
+| Dense + Rerank (cũ, 2026-10-11) | 18 | 63.33% | 63.33% | 0.6083 | - |
+| Dense + Rerank | 30 | 65.00% | 66.67% | 0.6242 | 857 ms |
+| Dense + Rerank | 50 | 71.67% | 73.33% | 0.6825 | 1317 ms |
+| Hybrid + Rerank (cũ, 2026-10-11) | 18 - 36 | 85.00% | 88.33% | 0.7811 | - |
+| Hybrid + Rerank | 30 | 85.00% | 88.33% | 0.7811 | 868 ms |
+| Hybrid + Rerank | 50 | 88.33% | 91.67% | 0.8150 | 1379 ms |
+
+Mức Văn bản Hit@4: Hybrid + Rerank 95.00% (30 ứng viên), 96.67% (50 ứng viên).
+
+### 5. Nhận xét
+- **BM25 thật sự có đóng góp.** Khi cùng 30 ứng viên, Hybrid + Rerank hơn Dense + Rerank 20 điểm Hit@4 ở mức Điều (12/60 câu), lớn hơn nhiều so với mức nhiễu. Nghi ngờ trước đây (mức tăng có thể chỉ do Hybrid được chấm nhiều ứng viên hơn) không đúng.
+- **Hybrid + Rerank với 30 ứng viên cho kết quả giống hệt bản cũ**, nên phần sửa không làm giảm chất lượng của cấu hình đang chạy.
+- **Ở 30 ứng viên, reranker đã lấy được gần hết những gì retriever tìm ra:** Recall@30 = 88.33% bằng Hit@6 = 88.33%. Phần chưa tìm được nằm ngoài 30 ứng viên đầu.
+- **Lên 50 ứng viên:** Recall tăng 5 điểm (3/60 câu), Hit@4 sau rerank tăng 3.3 điểm (2/60 câu), nằm ở mức nhiễu của bộ 60 câu. Đổi lại thời gian rerank tăng thêm khoảng 0.5 giây mỗi câu (+59%).
+- **Quyết định: giữ 30.** Có thể thử lại 50 khi có bộ eval lớn hơn.
+- Rerank trên GPU mất khoảng 0.86 giây mỗi câu, chậm hơn nhiều so với hybrid search (0.03 - 0.23 giây, mục đo độ trễ ở trên). Trên CPU sẽ còn chậm hơn.

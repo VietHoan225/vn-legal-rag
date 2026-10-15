@@ -33,9 +33,13 @@ class Embedder:
         else:
             self.embedding_dim = 384
 
-        print(
-            f"Loaded Embedder '{self.model_name}' on '{self.device}' "
-            f"(max_seq_length={self.max_seq_length}, dim={self.embedding_dim})"
+        # Log, never print: stdout is the protocol channel when served over MCP stdio.
+        logger.info(
+            "Loaded Embedder '%s' on '%s' (max_seq_length=%d, dim=%d)",
+            self.model_name,
+            self.device,
+            self.max_seq_length,
+            self.embedding_dim,
         )
 
     def check_token_length(self, text: str) -> int:

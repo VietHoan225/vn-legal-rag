@@ -1,7 +1,7 @@
 """Unit tests for configuration loading."""
 
 from unittest.mock import patch
-from src.config import Settings
+from src.config import PROJECT_ROOT, Settings
 
 
 def test_default_settings():
@@ -40,3 +40,21 @@ def test_resolved_device_cpu_fallback():
     with patch("torch.cuda.is_available", return_value=False):
         cfg = Settings(_env_file=None, device=None)
         assert cfg.resolved_device == "cpu"
+
+
+def test_env_file_is_anchored_at_project_root():
+    """.env is looked up in the repo, not in whatever directory the process starts from."""
+    assert Settings.model_config["env_file"] == PROJECT_ROOT / ".env"
+
+
+def test_bm25_dir_independent_of_cwd(tmp_path, monkeypatch):
+    """Starting from another directory (as an MCP client may) still finds the repo's BM25 index path."""
+    monkeypatch.chdir(tmp_path)
+    cfg = Settings(_env_file=None)
+    assert cfg.bm25_dir == PROJECT_ROOT / "data/processed/bm25_index"
+
+
+def test_bm25_dir_relative_and_absolute_overrides(tmp_path):
+    """A relative override resolves against the repo root; an absolute one is kept."""
+    assert Settings(_env_file=None, bm25_dir="custom/bm25").bm25_dir == PROJECT_ROOT / "custom/bm25"
+    assert Settings(_env_file=None, bm25_dir=tmp_path).bm25_dir == tmp_path
