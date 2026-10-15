@@ -3,6 +3,7 @@
 import pytest
 
 from src.agent.tools import LegalSearchTool, SearchError
+from src.config import settings
 from src.retrieval.vector_store import SearchResult
 
 
@@ -85,13 +86,19 @@ def test_tool_without_reranker_fetches_top_k():
     assert retriever.limits == [4]
 
 
-def test_tool_with_reranker_fetches_more_then_keeps_top_k():
+def test_tool_with_reranker_fetches_candidates_then_keeps_top_k():
     retriever, reranker = LimitRetriever(), FakeReranker()
-    tool = LegalSearchTool(retriever, reranker, top_k=5)  # type: ignore[arg-type]
+    tool = LegalSearchTool(retriever, reranker, top_k=5, candidates=30)  # type: ignore[arg-type]
     results = tool.search("mũ bảo hiểm")
-    assert retriever.limits == [15]
-    assert reranker.calls == [("mũ bảo hiểm", 15, 5)]
-    assert [r.article_number for r in results] == [15, 14, 13, 12, 11]  # reranker's order is kept
+    assert retriever.limits == [30]
+    assert reranker.calls == [("mũ bảo hiểm", 30, 5)]
+    assert [r.article_number for r in results] == [30, 29, 28, 27, 26]  # reranker's order is kept
+
+
+def test_tool_candidates_default_from_settings_and_never_below_top_k():
+    retriever = LimitRetriever()
+    assert LegalSearchTool(retriever, FakeReranker()).candidates == settings.rerank_candidates  # type: ignore[arg-type]
+    assert LegalSearchTool(retriever, FakeReranker(), top_k=50, candidates=30).candidates == 50  # type: ignore[arg-type]
 
 
 def test_tool_wraps_retrieval_failure_in_search_error():

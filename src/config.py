@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # BM25 index directory; a relative path is resolved against PROJECT_ROOT
     bm25_dir: Path = Path("data/processed/bm25_index")
 
+    # Candidates the retriever hands to the reranker, which keeps the final top_k
+    rerank_candidates: int = 30
+
     # Ingest / Chunking settings
     chunk_size: int = 600
     chunk_overlap: int = 80

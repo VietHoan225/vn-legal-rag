@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
 from src.api.main import app
+from src.config import settings
 from src.retrieval.vector_store import SearchResult
 from src.generation.generator import GenerationResult
 
@@ -15,16 +16,11 @@ def test_health_check():
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "message": "API is running"}
 
-@patch("src.api.main.get_embedder")
 @patch("src.api.main.get_hybrid_retriever")
 @patch("src.api.main.get_reranker")
 @patch("src.api.main.get_generator")
-def test_ask_question_success(mock_get_generator, mock_get_reranker, mock_get_hybrid, mock_get_embedder):
+def test_ask_question_success(mock_get_generator, mock_get_reranker, mock_get_hybrid):
     # Setup mocks
-    mock_embed = MagicMock()
-    mock_embed.embed_query.return_value = [0.1] * 384
-    mock_get_embedder.return_value = mock_embed
-    
     mock_search = MagicMock()
     mock_search.search.return_value = [
         SearchResult(
@@ -64,15 +60,13 @@ def test_ask_question_success(mock_get_generator, mock_get_reranker, mock_get_hy
     assert data["sources"][0]["content"] == "Điều 1: Luật này..."
     assert data["sources"][0]["metadata"]["clause_number"] == 2
     assert data["sources"][0]["metadata"]["location"] == "Điều 1, Khoản 2"
+    # Candidates for reranking come from settings, and the reranker keeps request.limit
+    mock_search.search.assert_called_once_with(query="Luật này nói gì?", limit=settings.rerank_candidates)
+    assert mock_reranker.rerank.call_args.kwargs["top_k"] == 3
 
-@patch("src.api.main.get_embedder")
 @patch("src.api.main.get_hybrid_retriever")
-def test_ask_question_no_results(mock_get_hybrid, mock_get_embedder):
+def test_ask_question_no_results(mock_get_hybrid):
     # Setup mocks
-    mock_embed = MagicMock()
-    mock_embed.embed_query.return_value = [0.1] * 384
-    mock_get_embedder.return_value = mock_embed
-    
     mock_search = MagicMock()
     mock_search.search.return_value = []
     mock_get_hybrid.return_value = mock_search

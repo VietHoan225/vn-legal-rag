@@ -159,14 +159,10 @@ def ask_question(request: AskRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     try:
-        # 1. Embed the query
-        query_vec = get_embedder().embed_query(request.question)
-        
-        # 2. Retrieve relevant documents (fetch more for reranking, use hybrid)
-        initial_limit = request.limit * 3
+        # 1. Retrieve candidates for reranking (hybrid search embeds the query itself)
         search_results = get_hybrid_retriever().search(
             query=request.question,
-            limit=initial_limit
+            limit=max(settings.rerank_candidates, request.limit),
         )
 
         if not search_results:
@@ -175,17 +171,17 @@ def ask_question(request: AskRequest):
                 sources=[]
             )
 
-        # 3. Rerank results
+        # 2. Rerank results
         search_results = get_reranker().rerank(
             query=request.question,
             results=search_results,
             top_k=request.limit
         )
 
-        # 4. Generate answer
+        # 3. Generate answer
         generation_result = get_generator().generate_answer(request.question, search_results)
         
-        # 5. Format response
+        # 4. Format response
         sources = [to_source_document(res) for res in search_results]
 
         return AskResponse(

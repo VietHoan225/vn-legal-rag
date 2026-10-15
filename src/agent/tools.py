@@ -15,10 +15,17 @@ class SearchError(Exception):
 class LegalSearchTool:
     """Tool to search for legal documents in the vector database."""
 
-    def __init__(self, retriever: HybridRetriever, reranker: Optional[Reranker] = None, top_k: int = 5):
+    def __init__(
+        self,
+        retriever: HybridRetriever,
+        reranker: Optional[Reranker] = None,
+        top_k: int = 5,
+        candidates: int | None = None,
+    ):
         self.retriever = retriever
         self.reranker = reranker
         self.top_k = top_k
+        self.candidates = max(candidates or settings.rerank_candidates, top_k)
         
     def get_tool_schema(self) -> dict:
         """Returns the JSON schema for this tool to pass to LLMs (Function Calling)."""
@@ -41,14 +48,14 @@ class LegalSearchTool:
         }
         
     def search(self, query: str) -> List[SearchResult]:
-        """Retrieve legal chunks for a query; with a reranker, fetch 3x candidates and keep the best top_k.
+        """Retrieve legal chunks for a query; with a reranker, fetch `candidates` hits and keep the best top_k.
 
         Raises SearchError if retrieval fails. An empty list means nothing relevant was found.
         """
         try:
             if self.reranker is None:
                 return self.retriever.search(query=query, limit=self.top_k)
-            candidates = self.retriever.search(query=query, limit=self.top_k * 3)
+            candidates = self.retriever.search(query=query, limit=self.candidates)
             return self.reranker.rerank(query, candidates, top_k=self.top_k)
         except Exception as e:
             raise SearchError(f"Legal search failed: {e}") from e

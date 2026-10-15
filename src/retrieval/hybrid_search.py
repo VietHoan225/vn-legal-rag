@@ -63,14 +63,12 @@ class HybridRetriever:
             
         return final_results
 
-    def search(
-        self, 
-        query: str, 
-        limit: int = 5,
-        dense_weight: float = 1.0, 
-        sparse_weight: float = 1.0
-    ) -> List[SearchResult]:
-        """Perform hybrid search and return fused results."""
+    def search(self, query: str, limit: int = 5) -> List[SearchResult]:
+        """Perform hybrid search and return at most `limit` fused results.
+
+        Each branch fetches `limit` hits; their union can hold up to 2 * limit
+        chunks, so the fused list is cut back to `limit`.
+        """
         # 1. Dense Search
         t0 = time.perf_counter()
         query_vec = self.embedder.embed_query(query)
@@ -113,7 +111,7 @@ class HybridRetriever:
         t_sparse = time.perf_counter()
 
         # 3. Combine with RRF
-        fused = self._rrf_combine(dense_results, sparse_results)
+        fused = self._rrf_combine(dense_results, sparse_results)[:limit]
         logger.info(
             "Hybrid search: embed %.0fms, qdrant %.0fms, bm25 %.0fms",
             (t_embed - t0) * 1000, (t_dense - t_embed) * 1000, (t_sparse - t_dense) * 1000,
