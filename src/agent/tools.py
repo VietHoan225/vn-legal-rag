@@ -47,16 +47,18 @@ class LegalSearchTool:
             }
         }
         
-    def search(self, query: str) -> List[SearchResult]:
+    def search(self, query: str, top_k: int | None = None) -> List[SearchResult]:
         """Retrieve legal chunks for a query; with a reranker, fetch `candidates` hits and keep the best top_k.
 
+        `top_k` overrides the default for this call only (e.g. an MCP client asking for more).
         Raises SearchError if retrieval fails. An empty list means nothing relevant was found.
         """
+        top_k = top_k or self.top_k
         try:
             if self.reranker is None:
-                return self.retriever.search(query=query, limit=self.top_k)
-            candidates = self.retriever.search(query=query, limit=self.candidates)
-            return self.reranker.rerank(query, candidates, top_k=self.top_k)
+                return self.retriever.search(query=query, limit=top_k)
+            candidates = self.retriever.search(query=query, limit=max(self.candidates, top_k))
+            return self.reranker.rerank(query, candidates, top_k=top_k)
         except Exception as e:
             raise SearchError(f"Legal search failed: {e}") from e
 
