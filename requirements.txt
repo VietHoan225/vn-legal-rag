@@ -13,3 +13,4 @@ bm25s==0.3.13
 streamlit==1.65.0
 requests==2.34.2
 openai==3.28.0
+mcp==1.30.0
