@@ -413,3 +413,31 @@ Mức Văn bản Hit@4: Hybrid + Rerank 95.00% (30 ứng viên), 96.67% (50 ứn
 - **Lên 50 ứng viên:** Recall tăng 5 điểm (3/60 câu), Hit@4 sau rerank tăng 3.3 điểm (2/60 câu), nằm ở mức nhiễu của bộ 60 câu. Đổi lại thời gian rerank tăng thêm khoảng 0.5 giây mỗi câu (+59%).
 - **Quyết định: giữ 30.** Có thể thử lại 50 khi có bộ eval lớn hơn.
 - Rerank trên GPU mất khoảng 0.86 giây mỗi câu, chậm hơn nhiều so với hybrid search (0.03 - 0.23 giây, mục đo độ trễ ở trên). Trên CPU sẽ còn chậm hơn.
+
+
+---
+
+## Đo MCP server (stdio) - 2026-10-16
+
+### 1. Cấu hình
+- `mcp==1.30.0` (FastMCP), chạy `scripts/run_mcp_server.py` qua stdio, thư mục làm việc `/` (không phải thư mục repo)
+- Embedding `paraphrase-multilingual-MiniLM-L12-v2`, collection `legal_chunks`, Hybrid (BM25) + Rerank `bge-reranker-v2-m3` trên 30 ứng viên, `top_k=5`, device `cuda` (RTX 2060)
+- Cách đo: client MCP tự viết (`mcp.client.stdio`), mỗi số là một lần chạy
+
+### 2. Kết quả
+
+| Chỉ số | Giá trị |
+|---|---|
+| Handshake `initialize` (từ lúc bật process) | 7.9 - 13.4 s (chủ yếu import torch/sentence-transformers) |
+| Lần gọi `search_law` đầu tiên (chờ nạp model nền) | 17 - 20 s |
+| `search_law` các lần sau (10 câu) | 2.06 - 2.22 s, trong đó retrieve ~17 ms, rerank ~2.1 s |
+| Kết quả trả về mỗi lần (5 đoạn) | khoảng 3.5 - 4.1 nghìn ký tự |
+| `list_laws` | 249 văn bản, khoảng 7.2 nghìn ký tự, tức thời |
+| `get_article` | Điều 6 NĐ 100/2019: 12.417 ký tự, cắt còn 5.887; Điều ngắn trả nguyên; tức thời |
+
+- Thư mục làm việc là `/` mà BM25 vẫn được nạp từ thư mục repo: cách tính đường dẫn theo `PROJECT_ROOT` hoạt động đúng.
+- Câu hỏi dùng thuật ngữ pháp lý ("không chấp hành hiệu lệnh của đèn tín hiệu giao thông xe mô tô") cho Điều 6 Khoản 4 NĐ 100/2019 ở hạng 1 (2/2 lần chạy). Câu nói thông thường "vượt đèn đỏ" cho Điều 47 (đèn đỏ ở đường ngang đường sắt) ở hạng 1: đúng như dự đoán, nên mô tả `search_law` hướng dẫn dùng thuật ngữ pháp lý.
+
+### 3. Nhận xét
+- **Thời gian rerank hôm nay chậm hơn hôm qua:** chạy lại đúng eval Hybrid + Rerank 30 ứng viên (60 câu) cho Hit@4 mức Điều 85.00% và MRR 0.7811 (giống hệt lần trước, kết quả tái lập được), nhưng rerank trung vị là 2341 ms thay vì 868 ms. Đo trực tiếp ngoài MCP cũng ra ~2.2 s, nên độ chậm không do MCP. Máy vừa khởi động lại 16 phút trước khi đo; chưa rõ nguyên nhân (GPU không bị chiếm bộ nhớ, đang ở P8 khi nghỉ).
+- Tool cũng chạy được khi gọi hai lần liên tiếp mà không cần nạp lại model.
