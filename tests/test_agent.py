@@ -67,9 +67,11 @@ class FakeCompletions:
     def __init__(self, replies: list):
         self.replies = list(replies)
         self.calls: list[list[dict]] = []
+        self.kwargs: list[dict] = []
 
     def create(self, messages, **kwargs):
         self.calls.append(messages)
+        self.kwargs.append(kwargs)
         assert kwargs.get("stream") is True
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
@@ -239,3 +241,31 @@ def test_bad_tool_arguments_go_back_to_the_llm():
     tool_msgs = [m for m in completions.calls[1] if m["role"] == "tool"]
     assert "invalid arguments" in tool_msgs[0]["content"]
     assert retriever.queries == []
+
+
+def test_final_step_disables_tools_and_forces_an_answer():
+    """If the LLM keeps searching, the last step must answer from what was found."""
+    agent, completions, retriever = make_agent(
+        [tool_reply("lần 1"), tool_reply("lần 2"), text_reply("Phạt 200.000 đồng")],
+        results=[make_result("39_1")],
+    )
+    assert agent.chat("Mũ bảo hiểm?") == "Phạt 200.000 đồng"
+    assert [k["tool_choice"] for k in completions.kwargs] == ["auto", "auto", "none"]
+    assert retriever.queries == ["lần 1", "lần 2"]
+    assert agent.memory.messages[-1].content == "Phạt 200.000 đồng"
+
+
+def test_final_step_tool_request_is_ignored():
+    """A model that ignores tool_choice='none' gets the fallback, and no third search runs."""
+    agent, completions, retriever = make_agent(
+        [tool_reply("lần 1"), tool_reply("lần 2"), tool_reply("lần 3")],
+        results=[make_result("39_1")],
+    )
+    answer = agent.chat("Mũ bảo hiểm?")
+    assert "xử lý quá lâu" in answer
+    assert retriever.queries == ["lần 1", "lần 2"]
+    # Memory stays valid: every assistant tool call has its tool result
+    msgs = agent.memory.messages
+    ids_called = [tc["id"] for m in msgs if m.tool_calls for tc in m.tool_calls]
+    ids_answered = [m.tool_call_id for m in msgs if m.role == "tool"]
+    assert ids_called == ids_answered

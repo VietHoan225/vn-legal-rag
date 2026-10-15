@@ -95,9 +95,18 @@ HƯỚNG DẪN QUAN TRỌNG:
 
         max_steps = 3
         for step in range(max_steps):
+            # On the last step tools are disabled so the LLM must answer from what it already found
+            final_step = step == max_steps - 1
             llm_start = time.perf_counter()
-            content, tool_calls = yield from self._llm_step(step, start, timings)
+            content, tool_calls = yield from self._llm_step(step, start, timings, allow_tools=not final_step)
             timings["llm"] += time.perf_counter() - llm_start
+
+            if final_step and tool_calls:
+                # Some models ignore tool_choice="none"; never run tools past the last step
+                logger.warning("LLM requested tools on the final step; ignoring them")
+                if not content:
+                    break
+                tool_calls = []
 
             if not tool_calls:
                 self.memory.add_message(Message(role="assistant", content=content))
@@ -129,16 +138,17 @@ HƯỚNG DẪN QUAN TRỌNG:
         finish()
 
     def _llm_step(
-        self, step: int, chat_start: float, timings: dict[str, float | None]
+        self, step: int, chat_start: float, timings: dict[str, float | None], allow_tools: bool = True
     ) -> Iterator[str]:
         """Call the LLM with streaming; yield text chunks, return (text, tool_calls)."""
-        logger.info("Calling LLM (Step %d)...", step + 1)
+        logger.info("Calling LLM (Step %d%s)...", step + 1, "" if allow_tools else ", tools disabled")
         step_start = time.perf_counter()
         stream = self.client.chat.completions.create(
             messages=cast(Any, self.memory.get_context()),
             model=self.model_name,
+            # Tools stay declared (history may contain tool calls); tool_choice decides if they can be used
             tools=cast(Any, [self.search_tool.get_tool_schema()]),
-            tool_choice="auto",
+            tool_choice="auto" if allow_tools else "none",
             stream=True,
         )
 
