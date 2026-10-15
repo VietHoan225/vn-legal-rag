@@ -13,6 +13,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import settings
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -61,8 +63,8 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed/bm25_index"),
-        help="Directory to save the BM25 index.",
+        default=settings.bm25_dir,
+        help="Directory to save the BM25 index (default: BM25_DIR setting).",
     )
 
     args = parser.parse_args()

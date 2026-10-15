@@ -15,16 +15,19 @@ logger = logging.getLogger(__name__)
 class HybridRetriever:
     """Combines Dense Search and Sparse Search using Reciprocal Rank Fusion (RRF)."""
 
-    def __init__(self, vector_store: QdrantVectorStore, embedder: Embedder, bm25_dir: str = "data/processed/bm25_index"):
+    def __init__(self, vector_store: QdrantVectorStore, embedder: Embedder, bm25_dir: str | Path | None = None):
         self.vector_store = vector_store
         self.embedder = embedder
-        
-        bm25_path = Path(bm25_dir)
+
+        bm25_path = Path(bm25_dir) if bm25_dir else settings.bm25_dir
         if bm25_path.exists():
-            logger.info("Loading BM25 index from %s", bm25_dir)
-            self.bm25_retriever = bm25s.BM25.load(bm25_dir, load_corpus=True)
+            logger.info("Loading BM25 index from %s", bm25_path)
+            self.bm25_retriever = bm25s.BM25.load(str(bm25_path), load_corpus=True)
         else:
-            logger.warning("BM25 index not found at %s. Hybrid search will fallback to Dense only.", bm25_dir)
+            logger.warning(
+                "BM25 index not found at %s. Hybrid search will fallback to Dense only.",
+                bm25_path.resolve(),
+            )
             self.bm25_retriever = None
 
     def _rrf_combine(
