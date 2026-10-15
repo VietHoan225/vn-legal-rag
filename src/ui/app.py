@@ -1,6 +1,8 @@
 import html
+import json
 import os
 import uuid
+from typing import Iterator
 
 import requests
 import streamlit as st
@@ -93,6 +95,38 @@ def new_conversation() -> None:
     st.session_state.messages = [dict(WELCOME)]
 
 
+class StreamError(Exception):
+    """The API reported a failure after it had started streaming."""
+
+
+def stream_chat(message: str, sources_out: list[dict]) -> Iterator[str]:
+    """POST to /chat/stream and yield answer text as it arrives.
+
+    Sources sent at the end of the stream are appended to `sources_out`.
+    Raises requests exceptions for connection/HTTP failures and StreamError for
+    errors reported inside the stream.
+    """
+    response = requests.post(
+        f"{API_URL}/chat/stream",
+        json={"session_id": st.session_state.session_id, "message": message},
+        timeout=(10, REQUEST_TIMEOUT),  # (connect, wait between chunks)
+        stream=True,
+    )
+    with response:
+        response.raise_for_status()
+        response.encoding = "utf-8"  # NDJSON has no charset header; avoid guessing
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            event = json.loads(line)
+            if event["type"] == "token":
+                yield event["text"]
+            elif event["type"] == "sources":
+                sources_out.extend(event["sources"])
+            elif event["type"] == "error":
+                raise StreamError(event["detail"])
+
+
 def error_text(exc: requests.exceptions.RequestException) -> str:
     """Turn a request failure into a short message for the user."""
     if isinstance(exc, requests.exceptions.Timeout):
@@ -131,18 +165,17 @@ if prompt := st.chat_input("Nhập câu hỏi pháp lý của bạn vào đây..
         message_placeholder = st.empty()
         message_placeholder.markdown("⏳ *Đang suy nghĩ...*")
 
+        answer, sources = "", []
         try:
-            response = requests.post(
-                f"{API_URL}/chat",
-                json={"session_id": st.session_state.session_id, "message": prompt},
-                timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-            data = response.json()
-            answer = data.get("answer") or "Xin lỗi, đã có lỗi xảy ra khi tạo câu trả lời."
-            sources = data.get("sources", [])
+            for token in stream_chat(prompt, sources):
+                answer += token
+                message_placeholder.markdown(answer + "▌")  # cursor while streaming
+        except StreamError as e:
+            answer = f"{answer}\n\n⏳ {e}" if answer else f"⏳ {e}"
         except requests.exceptions.RequestException as e:
-            answer, sources = error_text(e), []
+            answer = f"{answer}\n\n{error_text(e)}" if answer else error_text(e)
+        if not answer:
+            answer = "Xin lỗi, đã có lỗi xảy ra khi tạo câu trả lời."
 
         message_placeholder.markdown(answer)
         render_sources(sources)

@@ -38,25 +38,31 @@ class FakeRetriever:
         return self.results
 
 
-def text_reply(content: str) -> SimpleNamespace:
-    """LLM response with a plain answer."""
-    message = SimpleNamespace(content=content, tool_calls=None)
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+def chunk(content: str | None = None, tool_calls: list | None = None) -> SimpleNamespace:
+    """One streaming chunk, shaped like an OpenAI chat.completion.chunk."""
+    delta = SimpleNamespace(content=content, tool_calls=tool_calls)
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
 
 
-def tool_reply(query: str) -> SimpleNamespace:
-    """LLM response asking to call search_legal_docs."""
-    call = SimpleNamespace(
-        id="call_1",
-        type="function",
-        function=SimpleNamespace(name="search_legal_docs", arguments=json.dumps({"query": query})),
+def text_reply(content: str) -> list[SimpleNamespace]:
+    """Streamed plain answer, split in two chunks."""
+    mid = len(content) // 2
+    return [chunk(content[:mid]), chunk(content[mid:])]
+
+
+def tool_reply(query: str) -> list[SimpleNamespace]:
+    """Streamed request to call search_legal_docs; arguments arrive in pieces."""
+    arguments = json.dumps({"query": query})
+    mid = len(arguments) // 2
+    first = SimpleNamespace(
+        index=0, id="call_1", function=SimpleNamespace(name="search_legal_docs", arguments=arguments[:mid])
     )
-    message = SimpleNamespace(content=None, tool_calls=[call])
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    rest = SimpleNamespace(index=0, id=None, function=SimpleNamespace(name=None, arguments=arguments[mid:]))
+    return [chunk(tool_calls=[first]), chunk(tool_calls=[rest])]
 
 
 class FakeCompletions:
-    """Returns queued responses in order; an Exception in the queue is raised."""
+    """Returns queued chunk lists in order as streams; an Exception in the queue is raised."""
 
     def __init__(self, replies: list):
         self.replies = list(replies)
@@ -64,10 +70,11 @@ class FakeCompletions:
 
     def create(self, messages, **kwargs):
         self.calls.append(messages)
+        assert kwargs.get("stream") is True
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
-        return reply
+        return iter(reply)
 
 
 def make_agent(replies: list, results: list[SearchResult] | None = None, max_turns: int = 10):
@@ -163,3 +170,46 @@ def test_chat_trims_memory():
     # Trim runs before each new message: the last max_turns previous turns + the current one
     assert users == ["q1", "q2", "q3"]
     assert agent.memory.messages[0].role == "system"
+
+
+def test_chat_stream_yields_chunks_in_order():
+    agent, _, _ = make_agent([text_reply("Xin chào bạn!")])
+    chunks = list(agent.chat_stream("hello"))
+    assert len(chunks) == 2
+    assert "".join(chunks) == "Xin chào bạn!"
+    assert agent.memory.messages[-1].content == "Xin chào bạn!"
+
+
+def test_chat_stream_with_tool_streams_only_the_answer():
+    agent, _, retriever = make_agent(
+        [tool_reply("mũ bảo hiểm"), text_reply("Phạt 200.000 đồng")],
+        results=[make_result("39_1")],
+    )
+    assert "".join(agent.chat_stream("Mũ bảo hiểm?")) == "Phạt 200.000 đồng"
+    assert retriever.queries == ["mũ bảo hiểm"]  # arguments split across chunks were joined
+    assert [r.chunk_id for r in agent.last_sources] == ["39_1"]
+
+
+def test_chat_stream_records_timings():
+    agent, _, _ = make_agent([tool_reply("q"), text_reply("trả lời")], results=[make_result("39_1")])
+    list(agent.chat_stream("hỏi"))
+    t = agent.last_timings
+    assert t["first_token"] is not None and 0 <= t["first_token"] <= t["total"]
+    assert t["llm"] >= 0 and t["tools"] >= 0
+
+
+def test_chat_stream_closed_early_restores_memory():
+    agent, _, _ = make_agent([text_reply("một câu trả lời dài")])
+    before = list(agent.memory.messages)
+    stream = agent.chat_stream("hello")
+    next(stream)
+    stream.close()  # e.g. the HTTP client disconnected
+    assert agent.memory.messages == before
+
+
+def test_unknown_tool_gets_an_error_result_in_memory():
+    call = SimpleNamespace(index=0, id="call_x", function=SimpleNamespace(name="no_such_tool", arguments="{}"))
+    agent, completions, _ = make_agent([[chunk(tool_calls=[call])], text_reply("xong")])
+    assert "".join(agent.chat_stream("hi")) == "xong"
+    tool_msgs = [m for m in completions.calls[1] if m["role"] == "tool"]
+    assert tool_msgs[0]["tool_call_id"] == "call_x" and "unknown tool" in tool_msgs[0]["content"]

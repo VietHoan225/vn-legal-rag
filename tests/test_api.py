@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -93,16 +95,23 @@ def test_ask_question_empty_query():
 class FakeAgent:
     """Stands in for LegalAgent: echoes messages and remembers how many it got."""
 
-    def __init__(self, sources=None, error: Exception | None = None):
+    def __init__(self, sources=None, error: Exception | None = None, fail_after: int = 0):
         self.received: list[str] = []
         self.last_sources = sources or []
         self.error = error
+        self.fail_after = fail_after  # chat_stream: tokens yielded before the error is raised
 
     def chat(self, message: str) -> str:
         if self.error:
             raise self.error
         self.received.append(message)
         return f"trả lời {len(self.received)}"
+
+    def chat_stream(self, message: str):
+        for i, token in enumerate(["Xin ", "chào"]):
+            if self.error and i == self.fail_after:
+                raise self.error
+            yield token
 
 
 @pytest.fixture
@@ -180,3 +189,69 @@ def test_sessions_are_capped(mock_create_agent, clear_sessions, monkeypatch):
     for sid in ["a", "b", "c"]:
         client.post("/chat", json={"session_id": sid, "message": "hi"})
     assert list(clear_sessions) == ["b", "c"]
+
+
+def rate_limit_error():
+    import httpx
+    import openai
+
+    response = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1"))
+    return openai.RateLimitError("limit", response=response, body=None)
+
+
+def read_events(response) -> list[dict]:
+    """Parse a newline-delimited JSON streaming response."""
+    return [json.loads(line) for line in response.text.splitlines() if line]
+
+
+@patch("src.api.main.create_agent")
+def test_chat_stream_sends_tokens_then_sources(mock_create_agent, clear_sessions):
+    mock_create_agent.return_value = FakeAgent(sources=[make_chat_result("39_1"), make_chat_result("39_1")])
+
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "mũ bảo hiểm"})
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/x-ndjson")
+    events = read_events(r)
+    assert [e["type"] for e in events] == ["token", "token", "sources"]
+    assert "".join(e["text"] for e in events if e["type"] == "token") == "Xin chào"
+    assert [src["id"] for src in events[-1]["sources"]] == ["39_1"]
+    assert events[-1]["sources"][0]["metadata"]["location"] == "Điều 6, Khoản 2"
+
+
+@patch("src.api.main.create_agent")
+def test_chat_stream_error_before_first_token_is_http_error(mock_create_agent, clear_sessions):
+    mock_create_agent.return_value = FakeAgent(error=rate_limit_error(), fail_after=0)
+
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 429
+    assert "quá tải" in r.json()["detail"]
+
+
+@patch("src.api.main.create_agent")
+def test_chat_stream_error_mid_stream_is_an_event(mock_create_agent, clear_sessions):
+    mock_create_agent.return_value = FakeAgent(error=rate_limit_error(), fail_after=1)
+
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 200  # headers were already sent with the first token
+    events = read_events(r)
+    assert [e["type"] for e in events] == ["token", "error"]
+    assert "quá tải" in events[1]["detail"]
+
+
+def test_chat_stream_empty_message():
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "  "})
+    assert r.status_code == 400
+
+
+@patch("src.api.main.create_agent")
+def test_chat_stream_provider_error_returns_503(mock_create_agent, clear_sessions):
+    import httpx
+    import openai
+
+    error = openai.APIError("Upstream error: Service temporarily overloaded", request=httpx.Request("POST", "https://x"), body=None)
+    mock_create_agent.return_value = FakeAgent(error=error, fail_after=0)
+
+    r = client.post("/chat/stream", json={"session_id": "s", "message": "hỏi"})
+    assert r.status_code == 503
+    assert "gián đoạn" in r.json()["detail"]

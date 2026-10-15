@@ -1,10 +1,13 @@
 from collections import OrderedDict
+import json
 import logging
+import time
 from threading import Lock
 
 import groq
 import openai
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import List
 
 from src.config import settings
@@ -17,9 +20,14 @@ from src.api.models import AskRequest, AskResponse, ChatRequest, ChatResponse, S
 from src.agent.agent import LegalAgent
 from src.agent.tools import LegalSearchTool
 
+# Show INFO logs (timings) from project code only; libraries stay at WARNING
+logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.getLogger("src").setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 BUSY_MESSAGE = "Hệ thống đang quá tải (LLM giới hạn lượt gọi). Vui lòng thử lại sau khoảng 1 phút."
+UNAVAILABLE_MESSAGE = "Dịch vụ LLM tạm thời gián đoạn. Vui lòng thử lại sau ít phút."
 MAX_SESSIONS = 100
 
 app = FastAPI(
@@ -107,6 +115,32 @@ def get_session_agent(session_id: str) -> LegalAgent:
         return agent
 
 
+def unique_sources(agent: LegalAgent) -> list[SourceDocument]:
+    """Sources the agent retrieved for its latest message, each chunk once."""
+    # The agent may search several times
+    unique = {res.chunk_id: res for res in agent.last_sources}.values()
+    return [to_source_document(res) for res in unique]
+
+
+def llm_http_error(exc: Exception) -> HTTPException:
+    """Map an LLM client failure to the HTTP error the caller should see."""
+    if isinstance(exc, openai.RateLimitError):
+        logger.warning("LLM rate limit: %s", exc)
+        return HTTPException(status_code=429, detail=BUSY_MESSAGE)
+    if isinstance(exc, openai.APITimeoutError):
+        return HTTPException(status_code=504, detail="LLM phản hồi quá lâu. Vui lòng thử lại.")
+    if isinstance(exc, openai.APIError):  # provider-side failure, e.g. "Service temporarily overloaded"
+        logger.warning("LLM provider error: %s", exc)
+        return HTTPException(status_code=503, detail=UNAVAILABLE_MESSAGE)
+    logger.error("Chat failed: %s", exc, exc_info=exc)
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+def ndjson(event: dict) -> str:
+    """One streaming event as a JSON line."""
+    return json.dumps(event, ensure_ascii=False) + "\n"
+
+
 @app.get("/health")
 def health_check():
     """Check if the API is running."""
@@ -175,22 +209,52 @@ def chat(request: ChatRequest):
     agent = get_session_agent(request.session_id)
     try:
         answer = agent.chat(request.message)
-    except openai.RateLimitError as e:
-        logger.warning("OpenRouter rate limit: %s", e)
-        raise HTTPException(status_code=429, detail=BUSY_MESSAGE)
-    except openai.APITimeoutError:
-        raise HTTPException(status_code=504, detail="LLM phản hồi quá lâu. Vui lòng thử lại.")
     except Exception as e:
-        logger.exception("Chat failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise llm_http_error(e)
 
-    # The agent may search several times; show each chunk once
-    unique = list({res.chunk_id: res for res in agent.last_sources}.values())
     return ChatResponse(
         session_id=request.session_id,
         answer=answer,
-        sources=[to_source_document(res) for res in unique],
+        sources=unique_sources(agent),
     )
+
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest):
+    """Like /chat, but streams the answer as newline-delimited JSON events.
+
+    Events: {"type": "token", "text": ...} repeated, then {"type": "sources", "sources": [...]},
+    or {"type": "error", "detail": ...} if the LLM fails after streaming has started.
+    Failures before the first token still return a normal HTTP error (429, 504, 500).
+    """
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    if not request.session_id.strip():
+        raise HTTPException(status_code=400, detail="session_id cannot be empty.")
+
+    agent = get_session_agent(request.session_id)
+    tokens = agent.chat_stream(request.message)
+    t0 = time.perf_counter()
+
+    # Pull the first token here so early failures become proper HTTP errors
+    try:
+        first = next(tokens, None)
+    except Exception as e:
+        raise llm_http_error(e)
+    logger.info("Chat stream: first token after %.1fs", time.perf_counter() - t0)
+
+    def events():
+        try:
+            if first is not None:
+                yield ndjson({"type": "token", "text": first})
+            for text in tokens:
+                yield ndjson({"type": "token", "text": text})
+        except Exception as e:
+            yield ndjson({"type": "error", "detail": llm_http_error(e).detail})
+            return
+        yield ndjson({"type": "sources", "sources": [src.model_dump() for src in unique_sources(agent)]})
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 
 @app.delete("/chat/{session_id}")
