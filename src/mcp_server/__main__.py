@@ -7,6 +7,8 @@ import logging
 import sys
 
 from src.agent.tools import LegalSearchTool
+from src.config import settings
+from src.mcp_server.law_catalog import LawCatalog
 from src.mcp_server.server import LazyValue, create_server
 from src.retrieval.embedder import Embedder
 from src.retrieval.hybrid_search import HybridRetriever
@@ -22,6 +24,11 @@ def build_search_tool() -> LegalSearchTool:
     return LegalSearchTool(retriever, Reranker())
 
 
+def build_catalog() -> LawCatalog:
+    """Load the raw legal documents used by get_article and list_laws."""
+    return LawCatalog.from_file(settings.raw_data_path)
+
+
 def main() -> None:
     logging.basicConfig(
         stream=sys.stderr,
@@ -29,8 +36,10 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     search_tool = LazyValue(build_search_tool)
+    catalog = LazyValue(build_catalog)
     search_tool.warm_up()
-    create_server(search_tool).run()
+    catalog.warm_up()
+    create_server(search_tool, catalog).run()
 
 
 if __name__ == "__main__":

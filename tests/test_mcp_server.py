@@ -8,7 +8,8 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from src.agent.tools import SearchError
-from src.mcp_server.server import DATA_NOTE, MAX_TOP_K, LazyValue, create_server
+from src.mcp_server.law_catalog import LawCatalog
+from src.mcp_server.server import DATA_NOTE, MAX_ARTICLE_CHARS, MAX_TOP_K, LazyValue, create_server
 from src.retrieval.vector_store import SearchResult
 
 
@@ -41,6 +42,23 @@ class FakeSearch:
         return self.hits
 
 
+LONG_LINE = "Phạt tiền từ 100.000 đồng đến 200.000 đồng đối với hành vi vi phạm quy định."
+CATALOG = LawCatalog([
+    {
+        "doc_id": 1,
+        "title": "Văn bản số 100/2019/NĐ-CP",
+        "category": "nđ-cp",
+        "content": "Điều 1. Ngắn\nNội dung ngắn.\nĐiều 2. Dài\n" + "\n".join(f"{i}. {LONG_LINE}" for i in range(1, 200)),
+    },
+    {"doc_id": 2, "title": "Văn bản số 01/2020/TT-BTC", "category": "tt-btc", "content": "Điều 1. Phạm vi\nNội dung."},
+])
+
+
+def make_server(fake: "FakeSearch | None" = None):
+    fake = fake or FakeSearch()
+    return create_server(lambda: fake, lambda: CATALOG)
+
+
 def call(server: Any, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Call a tool through the MCP server and return its structured result."""
     content = asyncio.run(server.call_tool(name, args))
@@ -49,20 +67,24 @@ def call(server: Any, name: str, args: dict[str, Any]) -> dict[str, Any]:
     return json.loads(content[0].text)
 
 
-def test_server_lists_search_law_with_guidance_in_description():
-    server = create_server(lambda: FakeSearch())
-    tools = asyncio.run(server.list_tools())
-    assert [t.name for t in tools] == ["search_law"]
-    desc = tools[0].description
+def test_server_lists_three_tools_with_guidance_in_descriptions():
+    server = make_server()
+    tools = {t.name: t for t in asyncio.run(server.list_tools())}
+    assert set(tools) == {"search_law", "get_article", "list_laws"}
+    for tool in tools.values():
+        assert "lỗi thời" in tool.description  # outdated-data warning on every tool
+    assert set(tools["get_article"].inputSchema["properties"]) == {"law_name", "article_number"}
+    assert tools["list_laws"].inputSchema.get("properties", {}) == {}
+    search = tools["search_law"]
+    desc = search.description
     assert "đèn tín hiệu giao thông" in desc  # query-writing hint
-    assert "lỗi thời" in desc  # outdated-data warning
-    assert set(tools[0].inputSchema["properties"]) == {"query", "top_k"}
-    assert tools[0].inputSchema["required"] == ["query"]
+    assert set(search.inputSchema["properties"]) == {"query", "top_k"}
+    assert search.inputSchema["required"] == ["query"]
 
 
 def test_search_law_returns_compact_structured_hits():
     fake = FakeSearch([make_hit(6, 4), make_hit(47)])
-    out = call(create_server(lambda: fake), "search_law", {"query": "vượt đèn đỏ xe máy", "top_k": 2})
+    out = call(make_server(fake), "search_law", {"query": "vượt đèn đỏ xe máy", "top_k": 2})
     assert out["count"] == 2
     first = out["results"][0]
     assert first == {
@@ -83,31 +105,63 @@ def test_search_law_returns_compact_structured_hits():
 @pytest.mark.parametrize("requested, expected", [(0, 1), (-3, 1), (3, 3), (500, MAX_TOP_K)])
 def test_search_law_clamps_top_k(requested: int, expected: int):
     fake = FakeSearch()
-    call(create_server(lambda: fake), "search_law", {"query": "q", "top_k": requested})
+    call(make_server(fake), "search_law", {"query": "q", "top_k": requested})
     assert fake.calls == [("q", expected)]
 
 
 def test_search_law_default_top_k_is_five():
     fake = FakeSearch()
-    call(create_server(lambda: fake), "search_law", {"query": "q"})
+    call(make_server(fake), "search_law", {"query": "q"})
     assert fake.calls == [("q", 5)]
 
 
 def test_search_law_no_hits_is_an_empty_result_not_an_error():
-    out = call(create_server(lambda: FakeSearch([])), "search_law", {"query": "q"})
+    out = call(make_server(FakeSearch([])), "search_law", {"query": "q"})
     assert out["count"] == 0 and out["results"] == []
     assert out["note"] == DATA_NOTE
 
 
 def test_search_law_rejects_blank_query():
     with pytest.raises(ToolError, match="must not be empty"):
-        call(create_server(lambda: FakeSearch()), "search_law", {"query": "   "})
+        call(make_server(), "search_law", {"query": "   "})
 
 
 def test_search_failure_is_a_tool_error_not_an_empty_result():
     fake = FakeSearch(error=SearchError("qdrant down"))
     with pytest.raises(ToolError, match="không có nghĩa là không có quy định"):
-        call(create_server(lambda: fake), "search_law", {"query": "q"})
+        call(make_server(fake), "search_law", {"query": "q"})
+
+
+def test_get_article_returns_full_short_article():
+    out = call(make_server(), "get_article", {"law_name": "100/2019/nd-cp", "article_number": 1})
+    assert out["law"] == "100/2019/NĐ-CP"
+    assert out["text"] == "Điều 1. Ngắn\nNội dung ngắn."
+    assert out["truncated"] is False and "truncation_note" not in out
+    assert out["note"] == DATA_NOTE
+
+
+def test_get_article_truncates_long_article_at_a_line_break():
+    out = call(make_server(), "get_article", {"law_name": "100/2019/NĐ-CP", "article_number": 2})
+    assert out["truncated"] is True
+    assert len(out["text"]) <= MAX_ARTICLE_CHARS
+    assert out["total_chars"] > MAX_ARTICLE_CHARS
+    assert out["text"].endswith(LONG_LINE)  # cut between lines, not mid-sentence
+    assert "search_law" in out["truncation_note"]
+
+
+def test_get_article_unknown_law_and_article_are_tool_errors():
+    server = make_server()
+    with pytest.raises(ToolError, match="Không tìm thấy văn bản"):
+        call(server, "get_article", {"law_name": "999/2099/XX", "article_number": 1})
+    with pytest.raises(ToolError, match="không có Điều 7"):
+        call(server, "get_article", {"law_name": "01/2020/TT-BTC", "article_number": 7})
+
+
+def test_list_laws_groups_numbers_by_category():
+    out = call(make_server(), "list_laws", {})
+    assert out["total"] == 2
+    assert out["categories"] == {"nđ-cp": ["100/2019/NĐ-CP"], "tt-btc": ["01/2020/TT-BTC"]}
+    assert out["note"] == DATA_NOTE
 
 
 def test_lazy_value_builds_once_and_retries_after_failure():

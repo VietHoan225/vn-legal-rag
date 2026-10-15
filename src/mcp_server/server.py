@@ -8,6 +8,7 @@ from typing import Any, Callable, Generic, Protocol, TypeVar
 from mcp.server.fastmcp import FastMCP
 
 from src.agent.tools import SearchError
+from src.mcp_server.law_catalog import ArticleNotFoundError, LawCatalog, LawNotFoundError
 from src.retrieval.vector_store import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ T = TypeVar("T")
 
 MAX_TOP_K = 10
 DEFAULT_TOP_K = 5
+MAX_ARTICLE_CHARS = 6000
 
 DATA_NOTE = (
     "Dữ liệu là bộ văn bản Zalo Legal và có thể đã lỗi thời (ví dụ Nghị định 100/2019/NĐ-CP "
@@ -42,6 +44,37 @@ Returns:
     `article` (số Điều), `clause` (số Khoản, có thể null), `citation` (chuỗi trích dẫn sẵn),
     `relevance_score` (điểm của reranker: càng cao càng liên quan, KHÔNG phải xác suất 0-1)
     và `text` (nội dung đoạn luật). Hãy trích dẫn đúng `citation` khi trả lời.
+
+Lưu ý: {DATA_NOTE}"""
+
+
+GET_ARTICLE_DESCRIPTION = f"""Lấy nguyên văn một Điều của một văn bản pháp luật cụ thể.
+
+Dùng khi người dùng chỉ định rõ văn bản và số Điều (ví dụ "cho tôi đọc Điều 6 Nghị định
+100/2019/NĐ-CP"), hoặc khi cần đọc trọn một Điều sau khi `search_law` đã chỉ ra nó. Nếu chưa
+biết Điều nào liên quan thì dùng `search_law` trước, không đoán số Điều.
+
+Args:
+    law_name: Số hiệu văn bản, ví dụ "100/2019/NĐ-CP" (không phân biệt hoa thường và dấu;
+        "100/2019/nd-cp" cũng được). Lấy số hiệu từ `search_law` hoặc `list_laws`.
+    article_number: Số Điều, ví dụ 6.
+
+Returns:
+    `law`, `article`, `text` (nguyên văn Điều). Điều dài hơn {MAX_ARTICLE_CHARS} ký tự bị cắt:
+    khi đó `truncated` là true, `total_chars` là độ dài đầy đủ và `truncation_note` cho biết
+    cách lấy phần còn thiếu (tìm đúng Khoản bằng `search_law`).
+
+Lưu ý: {DATA_NOTE}"""
+
+LIST_LAWS_DESCRIPTION = f"""Liệt kê các văn bản pháp luật có trong cơ sở dữ liệu.
+
+Dùng để biết hệ thống có những văn bản nào, hoặc để tra số hiệu chính xác trước khi gọi
+`get_article`. Không cần tham số.
+
+Returns:
+    `total` (số văn bản) và `categories`: số hiệu các văn bản nhóm theo loại. Tên loại là
+    phần đuôi của số hiệu viết thường, ví dụ "nđ-cp" (Nghị định của Chính phủ), "tt-btc"
+    (Thông tư của Bộ Tài chính), "qh14" (Luật do Quốc hội khóa 14 ban hành).
 
 Lưu ý: {DATA_NOTE}"""
 
@@ -83,6 +116,14 @@ class LazyValue(Generic[T]):
         threading.Thread(target=run, name="warm-up", daemon=True).start()
 
 
+def cut_at_line(text: str, limit: int) -> str:
+    """Cut text to at most `limit` chars, at a line break when possible."""
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 0, limit)
+    return text[: cut if cut > limit // 2 else limit].rstrip()
+
+
 def format_hit(rank: int, hit: SearchResult) -> dict[str, Any]:
     """Convert a search hit into the compact structure returned to the client."""
     law = hit.title.removeprefix("Văn bản số ").strip()
@@ -97,9 +138,13 @@ def format_hit(rank: int, hit: SearchResult) -> dict[str, Any]:
     }
 
 
-def create_server(search_tool: Callable[[], SearchTool] | LazyValue[SearchTool]) -> FastMCP:
-    """Build the MCP server; `search_tool` is a factory or LazyValue so models load lazily."""
+def create_server(
+    search_tool: Callable[[], SearchTool] | LazyValue[SearchTool],
+    catalog: Callable[[], LawCatalog] | LazyValue[LawCatalog],
+) -> FastMCP:
+    """Build the MCP server; both backends are factories or LazyValues so they load lazily."""
     get_search_tool = search_tool.get if isinstance(search_tool, LazyValue) else search_tool
+    get_catalog = catalog.get if isinstance(catalog, LazyValue) else catalog
     mcp = FastMCP("luat-vn")
 
     @mcp.tool(name="search_law", description=SEARCH_LAW_DESCRIPTION)
@@ -123,6 +168,39 @@ def create_server(search_tool: Callable[[], SearchTool] | LazyValue[SearchTool])
             "query": query,
             "count": len(hits),
             "results": [format_hit(i, h) for i, h in enumerate(hits, start=1)],
+            "note": DATA_NOTE,
+        }
+
+    @mcp.tool(name="get_article", description=GET_ARTICLE_DESCRIPTION)
+    def get_article(law_name: str, article_number: int) -> dict[str, Any]:
+        logger.info("get_article law_name=%r article_number=%d", law_name, article_number)
+        try:
+            law, text = get_catalog().get_article(law_name, article_number)
+        except (LawNotFoundError, ArticleNotFoundError) as e:
+            raise ValueError(str(e)) from e
+        shown = cut_at_line(text, MAX_ARTICLE_CHARS)
+        out: dict[str, Any] = {
+            "law": law.code,
+            "category": law.category,
+            "article": article_number,
+            "text": shown,
+            "truncated": len(shown) < len(text),
+            "total_chars": len(text),
+            "note": DATA_NOTE,
+        }
+        if out["truncated"]:
+            out["truncation_note"] = (
+                f"Điều này dài {len(text)} ký tự, chỉ hiển thị {len(shown)} ký tự đầu. "
+                "Dùng search_law với nội dung cụ thể (hành vi, đối tượng) để lấy đúng Khoản cần đọc."
+            )
+        return out
+
+    @mcp.tool(name="list_laws", description=LIST_LAWS_DESCRIPTION)
+    def list_laws() -> dict[str, Any]:
+        categories = get_catalog().list_laws()
+        return {
+            "total": sum(len(codes) for codes in categories.values()),
+            "categories": categories,
             "note": DATA_NOTE,
         }
 

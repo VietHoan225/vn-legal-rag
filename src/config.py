@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # BM25 index directory; a relative path is resolved against PROJECT_ROOT
     bm25_dir: Path = Path("data/processed/bm25_index")
 
+    # Raw legal documents, read by the MCP server to return full article text
+    raw_data_path: Path = Path("data/raw/van-ban-phap-luat.json")
+
     # Candidates the retriever hands to the reranker, which keeps the final top_k
     rerank_candidates: int = 30
 
@@ -42,7 +45,7 @@ class Settings(BaseSettings):
     # Device selection: auto-detect if None
     device: Literal["cuda", "cpu"] | None = None
 
-    @field_validator("bm25_dir")
+    @field_validator("bm25_dir", "raw_data_path")
     @classmethod
     def _resolve_against_root(cls, v: Path) -> Path:
         """Anchor relative paths at the repo root instead of the working directory."""
