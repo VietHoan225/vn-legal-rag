@@ -84,6 +84,7 @@ def ingest(
     recreate: bool = False,
     force_reembed: bool = False,
     batch_size: int = 500,
+    embed_batch_size: int = 256,
 ) -> int:
     """Ingest chunks and embeddings into Qdrant."""
     chunks = load_chunks(chunks_path)
@@ -91,6 +92,7 @@ def ingest(
         chunks=chunks,
         cache_path=cache_path,
         force_recompute=force_reembed,
+        batch_size=embed_batch_size,
     )
 
     vector_store = QdrantVectorStore()
@@ -155,6 +157,12 @@ def main() -> None:
         default=500,
         help="Batch size for Qdrant upserts.",
     )
+    parser.add_argument(
+        "--embed-batch-size",
+        type=int,
+        default=256,
+        help="Batch size for embedding; lower it for large models (e.g. 32 for BAAI/bge-m3 on a 6GB GPU).",
+    )
 
     args = parser.parse_args()
     ingest(
@@ -164,6 +172,7 @@ def main() -> None:
         recreate=args.recreate,
         force_reembed=args.force_reembed,
         batch_size=args.batch_size,
+        embed_batch_size=args.embed_batch_size,
     )
 
 

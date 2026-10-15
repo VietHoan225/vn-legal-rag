@@ -249,3 +249,122 @@ Nhận xét:
 - Với câu pháp luật, người dùng bắt đầu đọc được sau khoảng 5 - 7s thay vì chờ 25 - 26s.
 - Streaming không làm tổng thời gian ngắn đi. Chênh lệch tổng giữa hai lần chạy (26s so với 18s) chủ yếu do model free dao động từ lần gọi này sang lần gọi khác, vì mỗi chế độ chỉ chạy 1 lần.
 - Nút thắt nằm ở LLM (hai lần gọi, mỗi lần chậm), không phải retrieval. Muốn giảm tổng thời gian thật sự thì phải bớt lần gọi LLM hoặc đổi model.
+
+
+---
+
+## Kết quả đánh giá Retrieval - 2026-10-15 13:07:46
+
+### 1. Cấu hình thử nghiệm
+- **Embedding Model:** `BAAI/bge-m3`
+- **Reranker Model:** `None`
+- **Hybrid Search (BM25):** `Disabled`
+- **Device:** `cuda`
+- **Vector Store:** Qdrant (`http://localhost:6333`), Collection: `legal_chunks_bgem3`
+- **Chunking:** `chunk_size=600`, `chunk_overlap=80` (chia theo Điều → Khoản → nhóm Điểm, prefix: `<tên văn bản> - Điều N[ - Khoản K]`)
+- **Số câu hỏi đánh giá:** 60 câu (Zalo Legal test set)
+
+### 2. Bảng chỉ số đo lường
+
+| Chỉ số | Mức Văn bản (Document) | Mức Điều (Article) | Baseline cũ (Prototype) |
+|---|---|---|---|
+| Hit@2 | 90.00% | 71.67% |
+| Hit@4 | 95.00% | 83.33% |
+| Hit@6 | 98.33% | 88.33% |
+| **MRR** | **0.8797** | **0.7275** | N/A |
+
+### 3. Nhận xét và so sánh
+- **So với baseline cũ:**
+  - Ở mức Văn bản: Hit@2 = 90.0%, Hit@4 = 95.0%, Hit@6 = 98.3%.
+  - Baseline cũ trong prototype notebook đạt Hit@4 ≈ 80.0% mức văn bản.
+- **Mức Điều (Article-level):** Đã bổ sung đo lường chính xác tới từng Điều cụ thể (MRR = 0.7275).
+
+---
+
+## Kết quả đánh giá Retrieval - 2026-10-15 13:08:40
+
+### 1. Cấu hình thử nghiệm
+- **Embedding Model:** `BAAI/bge-m3`
+- **Reranker Model:** `BAAI/bge-reranker-v2-m3`
+- **Hybrid Search (BM25):** `Disabled`
+- **Device:** `cuda`
+- **Vector Store:** Qdrant (`http://localhost:6333`), Collection: `legal_chunks_bgem3`
+- **Chunking:** `chunk_size=600`, `chunk_overlap=80` (chia theo Điều → Khoản → nhóm Điểm, prefix: `<tên văn bản> - Điều N[ - Khoản K]`)
+- **Số câu hỏi đánh giá:** 60 câu (Zalo Legal test set)
+
+### 2. Bảng chỉ số đo lường
+
+| Chỉ số | Mức Văn bản (Document) | Mức Điều (Article) | Baseline cũ (Prototype) |
+|---|---|---|---|
+| Hit@2 | 93.33% | 85.00% |
+| Hit@4 | 96.67% | 90.00% |
+| Hit@6 | 98.33% | 91.67% |
+| **MRR** | **0.8964** | **0.8172** | N/A |
+
+### 3. Nhận xét và so sánh
+- **So với baseline cũ:**
+  - Ở mức Văn bản: Hit@2 = 93.3%, Hit@4 = 96.7%, Hit@6 = 98.3%.
+  - Baseline cũ trong prototype notebook đạt Hit@4 ≈ 80.0% mức văn bản.
+- **Mức Điều (Article-level):** Đã bổ sung đo lường chính xác tới từng Điều cụ thể (MRR = 0.8172).
+
+---
+
+## Kết quả đánh giá Retrieval - 2026-10-15 13:10:10
+
+### 1. Cấu hình thử nghiệm
+- **Embedding Model:** `BAAI/bge-m3`
+- **Reranker Model:** `BAAI/bge-reranker-v2-m3`
+- **Hybrid Search (BM25):** `Enabled`
+- **Device:** `cuda`
+- **Vector Store:** Qdrant (`http://localhost:6333`), Collection: `legal_chunks_bgem3`
+- **Chunking:** `chunk_size=600`, `chunk_overlap=80` (chia theo Điều → Khoản → nhóm Điểm, prefix: `<tên văn bản> - Điều N[ - Khoản K]`)
+- **Số câu hỏi đánh giá:** 60 câu (Zalo Legal test set)
+
+### 2. Bảng chỉ số đo lường
+
+| Chỉ số | Mức Văn bản (Document) | Mức Điều (Article) | Baseline cũ (Prototype) |
+|---|---|---|---|
+| Hit@2 | 95.00% | 85.00% |
+| Hit@4 | 98.33% | 90.00% |
+| Hit@6 | 100.00% | 91.67% |
+| **MRR** | **0.9117** | **0.8158** | N/A |
+
+### 3. Nhận xét và so sánh
+- **So với baseline cũ:**
+  - Ở mức Văn bản: Hit@2 = 95.0%, Hit@4 = 98.3%, Hit@6 = 100.0%.
+  - Baseline cũ trong prototype notebook đạt Hit@4 ≈ 80.0% mức văn bản.
+- **Mức Điều (Article-level):** Đã bổ sung đo lường chính xác tới từng Điều cụ thể (MRR = 0.8158).
+
+---
+
+## So sánh embedding model: MiniLM và bge-m3 - 2026-10-15
+
+### 1. Cấu hình
+- **Cũ:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384 chiều, đọc tối đa 128 token), collection `legal_chunks`. Số liệu lấy từ lần đo 2026-10-11.
+- **Mới:** `BAAI/bge-m3` (1024 chiều, đọc tối đa 8192 token), collection `legal_chunks_bgem3`.
+- Giống nhau: cùng 52.263 chunk (Điều → Khoản → nhóm Điểm), cùng BM25 index, cùng reranker `BAAI/bge-reranker-v2-m3`, cùng 60 câu Zalo Legal test.
+- Trước khi đổi: 33,4% chunk vượt 128 token của model cũ, tổng cộng 5,3% số token bị cắt khi embed.
+
+### 2. Chất lượng (Hit@4 và MRR)
+
+| Cấu hình | Văn bản Hit@4 (cũ → mới) | Điều Hit@4 (cũ → mới) | Điều MRR (cũ → mới) |
+|---|---|---|---|
+| Dense | 78.33% → **95.00%** | 45.00% → **83.33%** | 0.4039 → **0.7275** |
+| Dense + Rerank | 85.00% → **96.67%** | 63.33% → **90.00%** | 0.6083 → **0.8172** |
+| Hybrid + Rerank | 95.00% → 98.33% | 85.00% → 90.00% | 0.7811 → 0.8158 |
+
+### 3. Chi phí
+
+| | MiniLM | bge-m3 |
+|---|---|---|
+| Embed toàn bộ 52.263 chunk (GPU RTX 2060) | khoảng 1 phút | 38 phút (batch 32) |
+| Embed 1 câu hỏi trên CPU (trung vị, 8 luồng) | 21 ms | 163 ms |
+| RAM model chiếm khi chạy CPU | ~0,7 GB | ~1,6 GB |
+| File cache embedding | 80 MB | 214 MB |
+
+### 4. Nhận xét
+- Dense thuần tăng rất mạnh (mức Điều Hit@4 +38 điểm), vượt xa mức nhiễu của bộ 60 câu. Riêng Dense của bge-m3 (83%) đã gần bằng cả pipeline cũ Hybrid + Rerank (85%).
+- Cấu hình đang chạy thật (Hybrid + Rerank) tăng ít hơn: mức Điều Hit@4 +5 điểm (3/60 câu), MRR +0,035. Mức này nằm sát ngưỡng nhiễu.
+- Với bge-m3, Dense + Rerank bằng Hybrid + Rerank ở mức Điều: BM25 gần như không còn đóng góp thêm.
+- Chi phí khi chạy (thêm khoảng 140 ms mỗi câu hỏi trên CPU) rất nhỏ so với 15 - 30 giây của LLM. Chi phí lớn là ingest (38 phút, làm một lần) và RAM.
+- Ghi chú: một lần chạy Hybrid + Rerank bị dừng không có lỗi và không ghi kết quả; chạy lại thì bình thường. Chưa rõ nguyên nhân (log kernel không có dấu hiệu hết RAM). Hiện tượng giống lần chạy ngày 2026-10-11.
