@@ -39,6 +39,12 @@ def test_embedder_initialization(mock_sentence_transformer):
     assert embedder.embedding_dim == 384
 
 
+def test_embedder_init_writes_nothing_to_stdout(mock_sentence_transformer, capsys):
+    """Stdout must stay clean: it carries the protocol when served over MCP stdio."""
+    Embedder(model_name="test-model", device="cpu")
+    assert capsys.readouterr().out == ""
+
+
 def test_embedder_warning_on_token_limit(mock_sentence_transformer):
     """Test warning issued when tokens exceed max_seq_length."""
     _, mock_instance = mock_sentence_transformer
