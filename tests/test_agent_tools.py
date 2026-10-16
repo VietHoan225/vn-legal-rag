@@ -105,3 +105,18 @@ def test_tool_wraps_retrieval_failure_in_search_error():
     tool = LegalSearchTool(BrokenRetriever())  # type: ignore[arg-type]
     with pytest.raises(SearchError, match="qdrant down"):
         tool.search("q")
+
+
+def test_tool_search_top_k_override_applies_to_one_call_only():
+    retriever, reranker = LimitRetriever(), FakeReranker()
+    tool = LegalSearchTool(retriever, reranker, top_k=5, candidates=30)  # type: ignore[arg-type]
+    assert len(tool.search("q", top_k=8)) == 8
+    assert len(tool.search("q")) == 5
+    assert reranker.calls == [("q", 30, 8), ("q", 30, 5)]
+
+
+def test_tool_search_top_k_override_widens_candidates_when_needed():
+    retriever, reranker = LimitRetriever(), FakeReranker()
+    tool = LegalSearchTool(retriever, reranker, top_k=5, candidates=6)  # type: ignore[arg-type]
+    tool.search("q", top_k=10)
+    assert retriever.limits == [10]

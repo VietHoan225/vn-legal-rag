@@ -80,6 +80,8 @@ def split_long_segment(segment: str, max_len: int) -> list[str]:
     return parts
 
 
+# 'Điều N.' or 'Điều N:' only at line/paragraph start (quoted articles inside amending laws start with a quote mark)
+ARTICLE_PATTERN = re.compile(r"(?m)^\s*(Điều\s+(\d+)[\.:])")
 CLAUSE_PATTERN = re.compile(r"(?m)^[ \t]*(\d+)\.\s")
 POINT_PATTERN = re.compile(r"(?m)^[ \t]*[a-zđ]\)\s")
 
@@ -244,9 +246,7 @@ def chunk_document(
     category = doc.get("category", "")
     law_code = normalize_title_to_code(title)
 
-    # Match 'Điều N.' or 'Điều N:' only at line/paragraph start
-    pattern = re.compile(r"(?m)^\s*(Điều\s+(\d+)[\.:])")
-    matches = list(pattern.finditer(content))
+    matches = list(ARTICLE_PATTERN.finditer(content))
     if not matches:
         return []
 

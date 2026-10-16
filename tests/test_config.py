@@ -58,3 +58,10 @@ def test_bm25_dir_relative_and_absolute_overrides(tmp_path):
     """A relative override resolves against the repo root; an absolute one is kept."""
     assert Settings(_env_file=None, bm25_dir="custom/bm25").bm25_dir == PROJECT_ROOT / "custom/bm25"
     assert Settings(_env_file=None, bm25_dir=tmp_path).bm25_dir == tmp_path
+
+
+def test_raw_data_path_resolved_against_project_root(tmp_path, monkeypatch):
+    """The raw data path, like bm25_dir, does not depend on the working directory."""
+    monkeypatch.chdir(tmp_path)
+    assert Settings(_env_file=None).raw_data_path == PROJECT_ROOT / "data/raw/van-ban-phap-luat.json"
+    assert Settings(_env_file=None, raw_data_path=tmp_path / "x.json").raw_data_path == tmp_path / "x.json"

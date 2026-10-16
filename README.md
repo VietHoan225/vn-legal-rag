@@ -93,6 +93,26 @@ uvicorn src.api.main:app --port 8000     # terminal 1: API
 streamlit run src/ui/app.py              # terminal 2: giao diện, mở http://localhost:8501
 ```
 
+## MCP server (cho Claude Code, Claude Desktop, Cursor)
+
+Phần tra cứu luật được đóng gói thành MCP server (`src/mcp_server/`) để các AI client gọi như một tool. Server **không gọi LLM**: client (Claude) tự quyết định khi nào tra luật và tự viết câu trả lời.
+
+| Tool | Chức năng |
+|---|---|
+| `search_law(query, top_k=5)` | Tìm các đoạn luật liên quan (Hybrid + Rerank); trả về số hiệu văn bản, Điều, Khoản, điểm liên quan, nội dung |
+| `get_article(law_name, article_number)` | Nguyên văn một Điều (tra theo số hiệu, ví dụ `100/2019/NĐ-CP`); Điều quá dài bị cắt ở 6.000 ký tự và có báo |
+| `list_laws()` | Liệt kê các văn bản trong cơ sở dữ liệu, nhóm theo loại |
+
+Cần Qdrant đang chạy (`docker compose up -d qdrant`) và đã ingest dữ liệu. Khởi chạy từ bất kỳ thư mục nào:
+
+```bash
+python scripts/run_mcp_server.py        # giao tiếp qua stdio, log ra stderr
+# đăng ký với Claude Code (dùng đường dẫn tuyệt đối tới python của môi trường):
+claude mcp add luat-vn -- /đường/dẫn/tới/python /đường/dẫn/tới/vn-legal-rag/scripts/run_mcp_server.py
+```
+
+Lưu ý: dữ liệu (bộ Zalo Legal) có thể đã lỗi thời, ví dụ Nghị định 100/2019/NĐ-CP đã được thay bởi Nghị định 168/2024/NĐ-CP. Mô tả của mỗi tool và kết quả trả về đều nhắc client cảnh báo người dùng điều này. Server nạp model nền khi khởi động nên lần gọi đầu tiên chậm hơn các lần sau.
+
 ## Kết quả Đánh giá (Evaluation)
 
 Hệ thống sử dụng bộ 60 câu hỏi pháp luật phức tạp (test set) để đánh giá khả năng trích xuất đúng Điều luật liên quan:
@@ -156,6 +176,7 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 - `src/generation/`: Xử lý gọi API tới Groq để sinh câu trả lời.
 - `src/api/`: Khai báo FastAPI Backend.
 - `src/ui/`: Giao diện Web bằng Streamlit.
+- `src/mcp_server/`: MCP server (`search_law`, `get_article`, `list_laws`), chạy bằng `scripts/run_mcp_server.py`.
 - `eval/`: Mã nguồn để chạy bộ đánh giá tự động (Evaluation).
 - `scripts/`: Chứa lệnh crawl dữ liệu, lập chỉ mục BM25 và đẩy vector lên Qdrant.
   - `scripts/profile_chat.py`: đo độ trễ chatbot qua API (`/chat` và `/chat/stream`).
